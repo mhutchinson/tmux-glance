@@ -4,7 +4,7 @@ bookmarks_file="$HOME/.tmux-bookmarks"
 touch "$bookmarks_file"
 
 prune_bookmarks() {
-    local temp_file
+    local temp_file pane_id session_name window_index pane_index path command label
     temp_file=$(mktemp)
     while IFS=$'\t' read -r pane_id session_name window_index pane_index path command label; do
         if [[ -n "$pane_id" ]] && tmux has-session -t "$pane_id" 2>/dev/null; then
@@ -16,12 +16,12 @@ prune_bookmarks() {
 
 add_bookmark() {
     local label="$1"
+    local info pane_id session_name window_index pane_index path command
     
     # Prune dead ones first
     prune_bookmarks
 
     # Get current pane info
-    local info
     info=$(tmux display-message -p '#{pane_id}	#{session_name}	#{window_index}	#{pane_index}	#{pane_current_path}	#{pane_current_command}')
     IFS=$'\t' read -r pane_id session_name window_index pane_index path command <<< "$info"
 
@@ -30,16 +30,38 @@ add_bookmark() {
         label="$command in $(basename "$path")"
     fi
 
+    # Remove existing if any (to update it)
     if grep -q "^${pane_id}" "$bookmarks_file"; then
-        # Already exists, so unpin it
         grep -v "^${pane_id}" "$bookmarks_file" > "${bookmarks_file}.tmp"
         mv "${bookmarks_file}.tmp" "$bookmarks_file"
-        tmux display-message "📌 Unpinned: $label"
-    else
-        # Add to bookmarks
-        echo -e "${pane_id}\t${session_name}\t${window_index}\t${pane_index}\t${path}\t${command}\t${label}" >> "$bookmarks_file"
-        tmux display-message "📌 Pinned: $label"
     fi
+
+    # Add to bookmarks
+    echo -e "${pane_id}\t${session_name}\t${window_index}\t${pane_index}\t${path}\t${command}\t${label}" >> "$bookmarks_file"
+    tmux display-message "📌 Pinned: $label"
+}
+
+remove_bookmark() {
+    # Prune dead ones first
+    prune_bookmarks
+
+    local pane_id stored_label
+    pane_id=$(tmux display-message -p '#{pane_id}')
+
+    if grep -q "^${pane_id}" "$bookmarks_file"; then
+        stored_label=$(grep "^${pane_id}" "$bookmarks_file" | cut -f7)
+        grep -v "^${pane_id}" "$bookmarks_file" > "${bookmarks_file}.tmp"
+        mv "${bookmarks_file}.tmp" "$bookmarks_file"
+        tmux display-message "📌 Unpinned: $stored_label"
+    else
+        tmux display-message "Not pinned."
+    fi
+}
+
+is_pinned() {
+    local pane_id
+    pane_id=$(tmux display-message -p '#{pane_id}')
+    grep -q "^${pane_id}" "$bookmarks_file"
 }
 
 list_bookmarks() {
@@ -98,11 +120,17 @@ case "$1" in
         shift
         add_bookmark "$*"
         ;;
+    remove)
+        remove_bookmark
+        ;;
+    is-pinned)
+        is_pinned
+        ;;
     list)
         list_bookmarks
         ;;
     *)
-        echo "Usage: $0 {add|list}"
+        echo "Usage: $0 {add|remove|is-pinned|list}"
         exit 1
         ;;
 esac
