@@ -1,56 +1,61 @@
 #!/usr/bin/env bash
+set -euo pipefail
+
+# Configurable agent command pattern (supports work override via env var)
+AGENT_COMMANDS_PATTERN="${TMUX_AGENT_COMMANDS:-^(agy|antigravity)$}"
 
 bookmarks_file="$HOME/.tmux-bookmarks"
 touch "$bookmarks_file"
 
+# Prune dead panes from bookmarks
 prune_bookmarks() {
-    local temp_file pane_id session_name window_index pane_index path command label
+    local temp_file pane_id session_name window_index pane_index path command label kind state
     temp_file=$(mktemp)
-    while IFS=$'\t' read -r pane_id session_name window_index pane_index path command label; do
-        if [[ -n "$pane_id" ]] && tmux has-session -t "$pane_id" 2>/dev/null; then
-            echo -e "${pane_id}\t${session_name}\t${window_index}\t${pane_index}\t${path}\t${command}\t${label}" >> "$temp_file"
+    while IFS=$'\t' read -r pane_id session_name window_index pane_index path command label kind state || [[ -n "$pane_id" ]]; do
+        [[ -z "$pane_id" ]] && continue
+        kind="${kind:-manual}"
+        state="${state:-pinned}"
+        if tmux has-session -t "$pane_id" 2>/dev/null; then
+            echo -e "${pane_id}\t${session_name}\t${window_index}\t${pane_index}\t${path}\t${command}\t${label}\t${kind}\t${state}" >> "$temp_file"
         fi
     done < "$bookmarks_file"
     mv "$temp_file" "$bookmarks_file"
 }
 
+# Add a manual bookmark (pinned)
 add_bookmark() {
     local label="$1"
     local info pane_id session_name window_index pane_index path command
     
-    # Prune dead ones first
     prune_bookmarks
 
-    # Get current pane info
     info=$(tmux display-message -p '#{pane_id}	#{session_name}	#{window_index}	#{pane_index}	#{pane_current_path}	#{pane_current_command}')
     IFS=$'\t' read -r pane_id session_name window_index pane_index path command <<< "$info"
 
-    # If label is empty, make a default one
     if [[ -z "$label" ]]; then
         label="$command in $(basename "$path")"
     fi
 
     # Remove existing if any (to update it)
-    if grep -q "^${pane_id}" "$bookmarks_file"; then
-        grep -v "^${pane_id}" "$bookmarks_file" > "${bookmarks_file}.tmp"
+    if grep -q "^${pane_id}	" "$bookmarks_file" 2>/dev/null; then
+        grep -v "^${pane_id}	" "$bookmarks_file" > "${bookmarks_file}.tmp" || true
         mv "${bookmarks_file}.tmp" "$bookmarks_file"
     fi
 
-    # Add to bookmarks
-    echo -e "${pane_id}\t${session_name}\t${window_index}\t${pane_index}\t${path}\t${command}\t${label}" >> "$bookmarks_file"
+    echo -e "${pane_id}\t${session_name}\t${window_index}\t${pane_index}\t${path}\t${command}\t${label}\tmanual\tpinned" >> "$bookmarks_file"
     tmux display-message "📌 Pinned: $label"
 }
 
+# Remove a bookmark manually
 remove_bookmark() {
-    # Prune dead ones first
     prune_bookmarks
 
     local pane_id stored_label
     pane_id=$(tmux display-message -p '#{pane_id}')
 
-    if grep -q "^${pane_id}" "$bookmarks_file"; then
-        stored_label=$(grep "^${pane_id}" "$bookmarks_file" | cut -f7)
-        grep -v "^${pane_id}" "$bookmarks_file" > "${bookmarks_file}.tmp"
+    if grep -q "^${pane_id}	" "$bookmarks_file" 2>/dev/null; then
+        stored_label=$(grep "^${pane_id}	" "$bookmarks_file" | cut -f7)
+        grep -v "^${pane_id}	" "$bookmarks_file" > "${bookmarks_file}.tmp" || true
         mv "${bookmarks_file}.tmp" "$bookmarks_file"
         tmux display-message "📌 Unpinned: $stored_label"
     else
@@ -61,34 +66,239 @@ remove_bookmark() {
 is_pinned() {
     local pane_id
     pane_id=$(tmux display-message -p '#{pane_id}')
-    grep -q "^${pane_id}" "$bookmarks_file"
+    grep -q "^${pane_id}	" "$bookmarks_file" 2>/dev/null
+}
+
+# Return list of currently focused pane IDs across all attached clients
+get_focused_panes() {
+    tmux list-clients -F '#{client_session}' 2>/dev/null | sort -u | while read -r sess; do
+        if [[ -n "$sess" ]]; then
+            tmux list-panes -s -t "$sess" -F '#{pane_id}	#{window_active}	#{pane_active}' 2>/dev/null | awk '$2=="1" && $3=="1" {print $1}'
+        fi
+    done
+}
+
+# Scan agent panes across tmux and update background agent watch states
+scan_agents() {
+    prune_bookmarks
+
+    local focused_panes
+    focused_panes=$(get_focused_panes | tr '\n' ' ')
+
+    # Read existing bookmarks into associative state lookups
+    declare -A bm_kind bm_state bm_label
+    local p_id s_name w_idx p_idx p_path p_cmd p_lbl p_k p_st
+    while IFS=$'\t' read -r p_id s_name w_idx p_idx p_path p_cmd p_lbl p_k p_st || [[ -n "$p_id" ]]; do
+        [[ -z "$p_id" ]] && continue
+        bm_kind["$p_id"]="${p_k:-manual}"
+        bm_state["$p_id"]="${p_st:-pinned}"
+        bm_label["$p_id"]="${p_lbl}"
+    done < "$bookmarks_file"
+
+    local updated=0
+    local panes_list
+    panes_list=$(tmux list-panes -a -F '#{pane_id}|#{session_name}|#{window_index}|#{pane_index}|#{pane_current_path}|#{pane_current_command}' 2>/dev/null || true)
+
+    # Process all panes running matched agent commands
+    while IFS='|' read -r pane_id sess win pane path cmd; do
+        [[ -z "$pane_id" ]] && continue
+
+        # Manual bookmarks are never touched by auto-agent tracking
+        if [[ "${bm_kind[$pane_id]:-}" == "manual" ]]; then
+            continue
+        fi
+
+        local is_focused=0
+        if [[ " $focused_panes " =~ " $pane_id " ]]; then
+            is_focused=1
+        fi
+
+        if [[ "$cmd" =~ $AGENT_COMMANDS_PATTERN ]]; then
+            local tail_text
+            tail_text=$(tmux capture-pane -p -t "$pane_id" 2>/dev/null | tail -n 4)
+
+            local current_state="${bm_state[$pane_id]:-}"
+            local new_state=""
+            local new_label=""
+
+            # Classify state based on strict footer cues
+            if echo "$tail_text" | grep -qiE '(Requesting permission for|Run this command\?|Navigate · tab Amend|1\. Yes, run command|\(y/n\))'; then
+                new_state="waiting"
+                new_label="waiting for confirmation"
+            elif echo "$tail_text" | grep -q 'esc to cancel'; then
+                new_state="running"
+                new_label="running"
+            elif echo "$tail_text" | grep -q '\? for shortcuts'; then
+                # Only maintain/transition to done if it was previously tracked
+                if [[ "$current_state" == "running" || "$current_state" == "waiting" || "$current_state" == "done" ]]; then
+                    new_state="done"
+                    new_label="finished"
+                fi
+            fi
+
+            # If currently focused by the user:
+            # - If not already tracked, do NOT add to watch list (background agents only)
+            # - If already tracked and done, clear immediately
+            if [[ $is_focused -eq 1 ]]; then
+                if [[ -z "$current_state" ]]; then
+                    continue
+                fi
+                if [[ "$new_state" == "done" || "$current_state" == "done" ]]; then
+                    unset "bm_kind[$pane_id]"
+                    unset "bm_state[$pane_id]"
+                    unset "bm_label[$pane_id]"
+                    updated=1
+                    continue
+                fi
+            fi
+
+            # Background pane doing something: add or update
+            if [[ -n "$new_state" ]]; then
+                if [[ "$current_state" != "$new_state" ]]; then
+                    bm_kind["$pane_id"]="auto"
+                    bm_state["$pane_id"]="$new_state"
+                    bm_label["$pane_id"]="$new_label in $(basename "$path")"
+                    updated=1
+                fi
+            fi
+        else
+            # Command changed away from agent (e.g. exited to zsh)
+            local current_state="${bm_state[$pane_id]:-}"
+            if [[ "$current_state" == "running" || "$current_state" == "waiting" ]]; then
+                bm_state["$pane_id"]="done"
+                bm_label["$pane_id"]="exited in $(basename "$path")"
+                updated=1
+            fi
+        fi
+    done <<< "$panes_list"
+
+    # Write back if state changed
+    if [[ $updated -eq 1 ]]; then
+        local temp_file
+        temp_file=$(mktemp)
+        # Re-read existing file to preserve structure and rewrite updated entries
+        while IFS=$'\t' read -r p_id s_name w_idx p_idx p_path p_cmd p_lbl p_k p_st || [[ -n "$p_id" ]]; do
+            [[ -z "$p_id" ]] && continue
+            if [[ -n "${bm_kind[$p_id]:-}" ]]; then
+                echo -e "${p_id}\t${s_name}\t${w_idx}\t${p_idx}\t${p_path}\t${p_cmd}\t${bm_label[$p_id]}\t${bm_kind[$p_id]}\t${bm_state[$p_id]}" >> "$temp_file"
+                unset "bm_kind[$p_id]"
+            fi
+        done < "$bookmarks_file"
+
+        # Append newly created auto bookmarks
+        for p_id in "${!bm_kind[@]}"; do
+            local pane_info
+            pane_info=$(tmux display-message -p -t "$p_id" '#{session_name}	#{window_index}	#{pane_index}	#{pane_current_path}	#{pane_current_command}' 2>/dev/null || true)
+            if [[ -n "$pane_info" ]]; then
+                IFS=$'\t' read -r s_name w_idx p_idx p_path p_cmd <<< "$pane_info"
+                echo -e "${p_id}\t${s_name}\t${w_idx}\t${p_idx}\t${p_path}\t${p_cmd}\t${bm_label[$p_id]}\t${bm_kind[$p_id]}\t${bm_state[$p_id]}" >> "$temp_file"
+            fi
+        done
+
+        mv "$temp_file" "$bookmarks_file"
+    fi
+}
+
+# Called when focus changes to a pane
+on_focus() {
+    local target_pane="${1:-}"
+    if [[ -z "$target_pane" ]]; then
+        target_pane=$(tmux display-message -p '#{pane_id}')
+    fi
+
+    [[ -z "$target_pane" ]] && return 0
+
+    if grep -q "^${target_pane}	" "$bookmarks_file" 2>/dev/null; then
+        local entry kind state
+        entry=$(grep "^${target_pane}	" "$bookmarks_file" | head -n 1)
+        kind=$(echo "$entry" | awk -F'\t' '{print $8}')
+        state=$(echo "$entry" | awk -F'\t' '{print $9}')
+
+        # If it is an auto-agent bookmark and it has finished, clear it on focus
+        if [[ "$kind" == "auto" && "$state" == "done" ]]; then
+            grep -v "^${target_pane}	" "$bookmarks_file" > "${bookmarks_file}.tmp" || true
+            mv "${bookmarks_file}.tmp" "$bookmarks_file"
+            tmux refresh-client -S 2>/dev/null || true
+        fi
+    fi
+}
+
+# Output formatted string for tmux status-right
+status_summary() {
+    scan_agents
+
+    local waiting_count=0
+    local running_count=0
+    local done_count=0
+
+    while IFS=$'\t' read -r p_id s_name w_idx p_idx p_path p_cmd p_lbl p_k p_st || [[ -n "$p_id" ]]; do
+        [[ -z "$p_id" ]] && continue
+        if [[ "$p_k" == "auto" ]]; then
+            case "$p_st" in
+                waiting) waiting_count=$((waiting_count + 1)) ;;
+                running) running_count=$((running_count + 1)) ;;
+                done)    done_count=$((done_count + 1)) ;;
+            esac
+        fi
+    done < "$bookmarks_file"
+
+    local out=""
+    if [[ $waiting_count -gt 0 ]]; then
+        out="${out}#[fg=#fab387,bold]🤖 ⏳ ${waiting_count}#[default] "
+    fi
+    if [[ $running_count -gt 0 ]]; then
+        out="${out}#[fg=#a6e3a1]🤖 ⚡ ${running_count}#[default] "
+    fi
+    if [[ $done_count -gt 0 ]]; then
+        out="${out}#[fg=#89b4fa,bold]🤖 ✓ ${done_count}#[default] "
+    fi
+
+    if [[ -n "$out" ]]; then
+        echo -n "${out}"
+    fi
 }
 
 list_bookmarks() {
-    # Prune dead ones first to ensure list is fresh
-    prune_bookmarks
+    scan_agents
 
     if [[ ! -s "$bookmarks_file" ]]; then
-        tmux display-message "No active pinned panes."
+        tmux display-message "No active bookmarks or running agents."
         exit 0
     fi
 
-    # Read file and format nicely for a TUI look
     local formatted_list
     formatted_list=$(
-        while IFS=$'\t' read -r pane_id session_name window_index pane_index path command label; do
+        while IFS=$'\t' read -r pane_id session_name window_index pane_index path command label kind state || [[ -n "$pane_id" ]]; do
+            [[ -z "$pane_id" ]] && continue
+            kind="${kind:-manual}"
+            state="${state:-pinned}"
+
+            local badge=""
+            case "$kind" in
+                manual)
+                    badge="📌 Pinned"
+                    ;;
+                auto)
+                    case "$state" in
+                        waiting) badge="🤖 ⏳ Waiting" ;;
+                        running) badge="🤖 ⚡ Running" ;;
+                        done)    badge="🤖 ✓ Finished" ;;
+                        *)       badge="🤖 $state" ;;
+                    esac
+                    ;;
+            esac
+
             local display_label="$label"
-            if [[ ${#display_label} -gt 25 ]]; then
-                display_label="${display_label:0:22}..."
+            if [[ ${#display_label} -gt 28 ]]; then
+                display_label="${display_label:0:25}..."
             fi
             
             local display_ctx="[$session_name:$window_index.$pane_index] $command"
-            if [[ ${#display_ctx} -gt 35 ]]; then
-                display_ctx="${display_ctx:0:32}..."
-            fi
+            local repo_name
+            repo_name=$(basename "$path")
 
-            # Format: Col1 │ Col2 │ Col3 \t pane_id (hidden in fzf display)
-            printf "%-25s │ %-35s │ %s\t%s\n" "$display_label" "$display_ctx" "$path" "$pane_id"
+            # Col1: Badge | Col2: Context | Col3: Repo | Col4: Label \t Col5: pane_id (hidden)
+            printf "%-15s │ %-18s │ %-20s │ %s\t%s\n" "$badge" "$display_ctx" "$repo_name" "$display_label" "$pane_id"
         done < "$bookmarks_file"
     )
 
@@ -96,10 +306,13 @@ list_bookmarks() {
     selected=$(echo "$formatted_list" | fzf \
         --delimiter=$'\t' \
         --with-nth=1 \
-        --header="📌 Jump to pinned pane (Enter to jump, Ctrl-C to cancel):" \
+        --ansi \
+        --header="📌 Bookmarks & Background Agents (Enter to jump, Ctrl-C to cancel):" \
         --layout=reverse \
         --border=rounded \
-        --info=inline
+        --info=inline \
+        --preview 'tmux capture-pane -e -p -t {2} 2>/dev/null | awk '\''{lines[NR]=$0} END {while (NR>0 && lines[NR] ~ /^[[:space:]]*$/) NR--; for (i=1; i<=NR; i++) print lines[i]}'\'' | tail -n 30' \
+        --preview-window='down:60%:wrap:follow' \
     )
 
     if [[ -n "$selected" ]]; then
@@ -109,13 +322,14 @@ list_bookmarks() {
             tmux select-pane -t "$target_pane_id"
             tmux select-window -t "$target_pane_id"
             tmux switch-client -t "$target_pane_id"
+            on_focus "$target_pane_id"
         else
             tmux display-message "Target pane no longer exists."
         fi
     fi
 }
 
-case "$1" in
+case "${1:-list}" in
     add)
         shift
         add_bookmark "$*"
@@ -126,11 +340,21 @@ case "$1" in
     is-pinned)
         is_pinned
         ;;
+    scan)
+        scan_agents
+        ;;
+    on-focus)
+        shift
+        on_focus "${1:-}"
+        ;;
+    status)
+        status_summary
+        ;;
     list)
         list_bookmarks
         ;;
     *)
-        echo "Usage: $0 {add|remove|is-pinned|list}"
+        echo "Usage: $0 {add|remove|is-pinned|scan|on-focus|status|list}"
         exit 1
         ;;
 esac
