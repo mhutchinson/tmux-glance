@@ -195,9 +195,16 @@ acquire_lock() {
   - Allows 1-keystroke teleportation across entire workspaces without needing a separate sessionizer binding.
 * **Hierarchy Telescoping (`Ctrl-w` / `Ctrl-p`):**
   - Quick-switch views to search across all open windows (`Ctrl-w`) or all active panes (`Ctrl-p`) across the server, transforming Glance into a universal tmux teleporter.
-* **Jump History & Backtracking (`Ctrl-h`):**
-  - Maintain a jump history stack recording the source pane whenever a user teleports via Glance.
-  - Pressing `Ctrl-h` within the viewer or via shortcut walks backwards through jump history, allowing effortless round-trip navigation back to where you were working.
+* **Jump History & Backtracking Jumplist (`Ctrl-h` / Undo-Redo):**
+  - Maintain a dual back/forward traversal stack (`jump-back` / `jump-forward`) similar to Vim's `<C-o>` / `<C-i>` or browser navigation:
+    - **Normal Jump:** Push source pane to Back stack, clear Forward stack, switch to destination.
+    - **Jump Back (Undo):** Pop target from Back stack, push current pane to Forward stack, switch to target.
+    - **Jump Forward (Redo):** Pop target from Forward stack, push current pane to Back stack, switch to target.
+    - **Liveness Invariant:** Silently discard stale/dead panes when popping before switching.
+  - **Instant Keyboard Traversal (No Menu Required):**
+    - `prefix C-z` (Undo) & `prefix C-y` / `prefix C-Z` (Redo) for instant single-chord backtracking (safely replacing the dangerous default tmux `suspend-client` on `C-z`).
+    - Repeatable bindings via `bind-key -r u` (Undo) and `bind-key -r U` (Redo), allowing multi-hop rewinds by tapping `u u u` within the tmux `repeat-time` window without re-pressing `prefix`.
+  - **Visual Traversal Inspector (`Ctrl-h` in fzf):** Pressing `Ctrl-h` within the Glance popup opens a chronological list of recent jump locations with live previews.
 * **Global Agent Quotas & Saturation Gauges (`sentinel_<name>_gauge`):**
   - Allow sentinels to optionally contribute a single, global capacity or quota gauge (e.g. LLM API token quota, hourly request limits, or harness saturation).
   - **Threshold Visibility Rule:** Quota gauges only appear in `status-right` when depleted below **20%** (e.g. `#[fg=#fab387]🪫 18%#[default]`, escalating to `#[fg=#f38ba8,bold]⚠️ 4%#[default]`). When >20%, `status-right` remains completely quiet and uncluttered.

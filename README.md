@@ -391,7 +391,7 @@ just gh-issues
 ### Upcoming Roadmap
 * [ ] **v0.6: In-Dashboard Sessionizer (`Ctrl-s`)** — Search and switch tmux sessions directly within the Glance dashboard, complete with ambient status badge summaries (`🚨 1`, `🤖 ⏳ 1`, `👁️ 2`) representing the state of each workspace.
 * [ ] **v0.7: Hierarchy Telescoping (`Ctrl-w` / `Ctrl-p`)** — Expand picker scope to search across all open windows (`Ctrl-w`) or all active panes (`Ctrl-p`) across the server, creating a unified navigation hub.
-* [ ] **v0.8: Jump History & Backtracking (`Ctrl-h`)** — Maintain a jump traversal stack when teleporting across panes, allowing instant round-trip backtracking to where you were previously working.
+* [ ] **v0.8: Jump History & Jumplist Backtracking (`Ctrl-h` / Undo-Redo)** — Dual Back/Forward jump stack for seamless pane navigation. Instant undo/redo via `prefix C-z` / `prefix C-y` (or repeatable `prefix -r u` / `U` for multi-hop rewinds) to jump straight back to your code without opening a menu, plus an in-viewer history stack (`Ctrl-h`).
 * [ ] **v0.9: Global Agent Quotas & Saturation Gauges** — Sentinel capacity/quota hook (`sentinel_<name>_gauge`). Kept quiet in `status-right` until capacity drops below 20% (escalating to warning colors), always visible in the dashboard header, strictly backed by asynchronous local cache.
 
 ---
