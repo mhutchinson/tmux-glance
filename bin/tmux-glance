@@ -756,6 +756,7 @@ preview_pane() {
     # Handle graceful exit when fzf terminates preview subshell
     trap 'exit 0' INT TERM HUP
 
+    local prev_hash=""
     while true; do
         if ! tmux has-session -t "$pane" 2>/dev/null; then
             printf '\033[2J\033[H'
@@ -763,10 +764,19 @@ preview_pane() {
             return 0
         fi
 
-        printf '\033[2J\033[H'
-        tmux capture-pane -e -p -t "$pane" 2>/dev/null \
+        local content
+        content=$(tmux capture-pane -e -p -t "$pane" 2>/dev/null \
             | awk '{lines[NR]=$0} END {while (NR>0 && lines[NR] ~ /^[[:space:]]*$/) NR--; for (i=1; i<=NR; i++) print lines[i]}' \
-            | tail -n 35
+            | tail -n 35)
+
+        local curr_hash
+        curr_hash=$(echo "$content" | (md5 -q 2>/dev/null || md5sum 2>/dev/null | cut -d' ' -f1 || cksum | cut -d' ' -f1))
+
+        if [[ "$curr_hash" != "$prev_hash" ]]; then
+            printf '\033[2J\033[H%s\n' "$content"
+            prev_hash="$curr_hash"
+        fi
+
         sleep 0.5
     done
 }
@@ -809,7 +819,7 @@ list_bookmarks() {
         --info=inline \
         --bind "ctrl-b:reload($SELF_BIN list-raw toggle)" \
         --preview "\"$SELF_BIN\" preview {2}" \
-        --preview-window='down:60%:wrap' \
+        --preview-window='down:60%:wrap:follow' \
     )
 
     if [[ -n "$selected" ]]; then
