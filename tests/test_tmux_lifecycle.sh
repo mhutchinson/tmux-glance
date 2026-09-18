@@ -34,7 +34,7 @@ echo "PASS"
 # Helper to read status output
 get_status() {
     rm -f "$STATUS_FILE"
-    tmux -S "$SOCK" run-shell "$BIN status > '$STATUS_FILE'"
+    tmux -S "$SOCK" run-shell "bash '$BIN' status > '$STATUS_FILE'"
     cat "$STATUS_FILE" 2>/dev/null || true
 }
 
@@ -52,7 +52,7 @@ fi
 echo -n "Test 3: Toggle Vigil on win1... "
 pane1_id=$(tmux -S "$SOCK" list-panes -t test-sess:win1 -F '#{pane_id}')
 tmux -S "$SOCK" select-window -t test-sess:win1
-tmux -S "$SOCK" run-shell "$BIN toggle-vigil"
+tmux -S "$SOCK" run-shell "bash '$BIN' toggle-vigil"
 status_out=$(get_status)
 if [[ "$status_out" =~ 👁️[[:space:]]+1 ]]; then
     echo "PASS (Status: $status_out)"
@@ -69,7 +69,7 @@ tmux -S "$SOCK" select-window -t test-sess:win2
 echo -n "Test 4: Output change in background triggers dynamic Alert... "
 tmux -S "$SOCK" send-keys -t "$pane1_id" "Build completed successfully!" C-m
 # Run scan to detect change
-tmux -S "$SOCK" run-shell "$BIN scan"
+tmux -S "$SOCK" run-shell "bash '$BIN' scan"
 status_out=$(get_status)
 if [[ "$status_out" =~ 🚨[[:space:]]+1 ]]; then
     echo "PASS (Upgraded to: $status_out)"
@@ -81,7 +81,7 @@ fi
 # 6. Focus win1 and acknowledge alert
 echo -n "Test 5: Focusing pane auto-acknowledges alert back to quiet watch... "
 tmux -S "$SOCK" select-window -t test-sess:win1
-tmux -S "$SOCK" run-shell "$BIN on-focus $pane1_id"
+tmux -S "$SOCK" run-shell "bash '$BIN' on-focus $pane1_id"
 status_out=$(get_status)
 if [[ "$status_out" =~ 👁️[[:space:]]+1 ]] && ! [[ "$status_out" =~ 🚨 ]]; then
     echo "PASS (Acknowledged back to: $status_out)"
@@ -93,7 +93,7 @@ fi
 # 7. Live Preview actively streams pane contents
 echo -n "Test 6: Live preview actively streams pane contents... "
 rm -f "$STATUS_FILE"
-tmux -S "$SOCK" run-shell "$BIN preview $pane1_id > '$STATUS_FILE' 2>&1 & sleep 0.3; kill -TERM \$! 2>/dev/null || true"
+tmux -S "$SOCK" run-shell "bash '$BIN' preview $pane1_id > '$STATUS_FILE' 2>&1 & sleep 0.3; kill -TERM \$! 2>/dev/null || true"
 preview_out=$(cat "$STATUS_FILE" 2>/dev/null || true)
 if [[ "$preview_out" =~ "Build completed successfully!" ]]; then
     echo "PASS"
@@ -104,7 +104,7 @@ fi
 
 # 8. Untoggle Vigil
 echo -n "Test 7: Toggle Vigil off releases watch... "
-tmux -S "$SOCK" run-shell "$BIN toggle-vigil"
+tmux -S "$SOCK" run-shell "bash '$BIN' toggle-vigil"
 status_out=$(get_status)
 if [[ -z "$status_out" ]]; then
     echo "PASS (Status quiet)"

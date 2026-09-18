@@ -78,6 +78,7 @@
             cd test-build
             chmod -R u+w .
             chmod +x bin/* sentinels/* tests/*
+            patchShebangs .
             bash tests/run_tests.sh | tee $out/test.log
           '';
         }
