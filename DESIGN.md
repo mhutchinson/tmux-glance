@@ -198,3 +198,10 @@ acquire_lock() {
 * **Jump History & Backtracking (`Ctrl-h`):**
   - Maintain a jump history stack recording the source pane whenever a user teleports via Glance.
   - Pressing `Ctrl-h` within the viewer or via shortcut walks backwards through jump history, allowing effortless round-trip navigation back to where you were working.
+* **Global Agent Quotas & Saturation Gauges (`sentinel_<name>_gauge`):**
+  - Allow sentinels to optionally contribute a single, global capacity or quota gauge (e.g. LLM API token quota, hourly request limits, or harness saturation).
+  - **Threshold Visibility Rule:** Quota gauges only appear in `status-right` when depleted below **20%** (e.g. `#[fg=#fab387]🪫 18%#[default]`, escalating to `#[fg=#f38ba8,bold]⚠️ 4%#[default]`). When >20%, `status-right` remains completely quiet and uncluttered.
+  - **Always Visible in Dashboard:** The Glance Fleet View (`prefix g` / `prefix b`) always displays the gauge in the header/telemetry bar regardless of level so developers can check capacity at any time.
+  - **Strictly Global (No Per-Pane Churn):** Limit of 1 global gauge per harness. Progress bars or multi-terminal metrics are disallowed in this slot to prevent status bar churn and visual clutter.
+  - **Asynchronous Local Cache Invariant:** Gauges must **never** make synchronous HTTP or CLI queries inside `status-right` polling (must read a local cache file written out-of-band by a daemon, hook, or background task to preserve the <50ms status budget). Pilot with `sentinel_antigravity` first.
+
