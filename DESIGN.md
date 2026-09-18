@@ -211,4 +211,28 @@ acquire_lock() {
   - **Always Visible in Dashboard:** The Glance Fleet View (`prefix g` / `prefix b`) always displays the gauge in the header/telemetry bar regardless of level so developers can check capacity at any time.
   - **Strictly Global (No Per-Pane Churn):** Limit of 1 global gauge per harness. Progress bars or multi-terminal metrics are disallowed in this slot to prevent status bar churn and visual clutter.
   - **Asynchronous Local Cache Invariant:** Gauges must **never** make synchronous HTTP or CLI queries inside `status-right` polling (must read a local cache file written out-of-band by a daemon, hook, or background task to preserve the <50ms status budget). Pilot with `sentinel_antigravity` first.
+* **Quickfix Attention Cycling & Queue HUD (`prefix -r ]` / `prefix -r [`):**
+  - Instant Vim-quickfix-style navigation (`:cnext` / `:cprev`) cycling through all panes currently contributing active icons to `status-right`.
+  - **Strict Deterministic Queue Ordering:**
+    1. *Primary Sort (Severity Rank):* Alerts (`🚨`) > Blocked Agents (`🤖 ⏳`) > Finished Tasks (`🤖 ✓`).
+    2. *Secondary Tie-Breaker:* Stable ordering by state timestamp (oldest pending prompt first) or server pane hierarchy (`session:window.pane`) to ensure predictable muscle memory.
+  - **Repeatable Keybindings (`-r`):**
+    - `prefix -r ]` — Jump to next attention item.
+    - `prefix -r [` — Jump to previous attention item.
+    - Rapid tapping (e.g. `prefix ] ] ]`) allows whizzing across multiple items within tmux's `repeat-time` window without re-pressing `prefix`.
+  - **Visual Queue HUD & Progress Feedback:**
+    - Avoids spatial disorientation during rapid jumps:
+      - *Top-Right Floating HUD:* A mini-popup docked at the top-right corner (`-x R -y 0`) showing the mini-queue with an active cursor:
+        ```text
+        ┌ Attention Queue (2/3) ┐
+        │ 1. 🚨 cargo test       │
+        │>2. 🤖 ⏳ agy prompt    │
+        │ 3. 🤖 ✓ backend auth   │
+        └────────────────────────┘
+        ```
+      - *Status Bar Override:* Alternatively, temporarily override `status-right` or flash a tmux message: `[2/3] 🤖 ⏳ agy (nix-home) "permission required" — [ / ] to cycle`.
+  - **Dwell-Time Auto-Ack Protection ("The Whiz-Past Invariant"):**
+    - Rapidly stepping past panes suppresses the `pane-focus-in` auto-acknowledgment hook.
+    - An alert is only cleared once cycling ceases (repeatable timer expires and user remains dwell-focused on the pane) or upon explicit user interaction in the pane, preventing accidental dismissal of unread alerts.
+
 
