@@ -260,7 +260,7 @@ status_summary() {
 
 get_attention_list() {
     if [[ ! -s "$bookmarks_file" ]]; then
-        printf "%-15s │ %-18s │ %-20s │ %s\t%s\n" "📌 Empty" "[0:0.0]" "none" "No active pins or agent alerts (Ctrl-b for all bots)" ""
+        printf "%s│ %-16s │ %-24s │ %s\t%s\n" "📌 Empty      " "[0:0.0]" "none" "No active pins or agent alerts (Ctrl-b for all bots)" ""
         return 0
     fi
 
@@ -272,29 +272,36 @@ get_attention_list() {
         local badge=""
         case "$kind" in
             manual)
-                badge="📌 Pinned"
+                badge="📌 Pinned     "
                 ;;
             auto)
                 case "$state" in
-                    waiting) badge="🤖 ⏳ Waiting" ;;
-                    running) badge="🤖 ⚡ Running" ;;
-                    done)    badge="🤖 ✓ Finished" ;;
-                    *)       badge="🤖 $state" ;;
+                    waiting) badge="🤖 ⏳ Waiting " ;;
+                    running) badge="🤖 ⚡ Running " ;;
+                    done)    badge="🤖 ✓ Finished " ;;
+                    *)       badge="🤖 $state      " ;;
                 esac
                 ;;
         esac
 
-        local display_label="$label"
-        if [[ ${#display_label} -gt 28 ]]; then
-            display_label="${display_label:0:25}..."
-        fi
-        
         local display_ctx="[$session_name:$window_index.$pane_index] $command"
+        if [[ ${#display_ctx} -gt 16 ]]; then
+            display_ctx="${display_ctx:0:13}..."
+        fi
+
         local repo_name
         repo_name=$(basename "$path")
+        if [[ ${#repo_name} -gt 24 ]]; then
+            repo_name="${repo_name:0:21}..."
+        fi
 
-        # Col1: Badge | Col2: Context | Col3: Repo | Col4: Label \t Col5: pane_id (hidden)
-        printf "%-15s │ %-18s │ %-20s │ %s\t%s\n" "$badge" "$display_ctx" "$repo_name" "$display_label" "$pane_id"
+        local display_label="$label"
+        if [[ ${#display_label} -gt 32 ]]; then
+            display_label="${display_label:0:29}..."
+        fi
+
+        # Col1: Badge (pre-padded) | Col2: Context | Col3: Repo | Col4: Label \t Col5: pane_id (hidden)
+        printf "%s│ %-16s │ %-24s │ %s\t%s\n" "$badge" "$display_ctx" "$repo_name" "$display_label" "$pane_id"
     done < "$bookmarks_file"
 }
 
@@ -320,37 +327,46 @@ get_all_bots_list() {
 
         if [[ -n "${bm_kind[$pane_id]:-}" ]]; then
             if [[ "${bm_kind[$pane_id]}" == "manual" ]]; then
-                badge="📌 Pinned"
+                badge="📌 Pinned     "
                 label="${bm_label[$pane_id]}"
             else
                 case "${bm_state[$pane_id]}" in
-                    waiting) badge="🤖 ⏳ Waiting" ;;
-                    running) badge="🤖 ⚡ Running" ;;
-                    done)    badge="🤖 ✓ Finished" ;;
-                    *)       badge="🤖 ${bm_state[$pane_id]}" ;;
+                    waiting) badge="🤖 ⏳ Waiting " ;;
+                    running) badge="🤖 ⚡ Running " ;;
+                    done)    badge="🤖 ✓ Finished " ;;
+                    *)       badge="🤖 ${bm_state[$pane_id]}      " ;;
                 esac
                 label="${bm_label[$pane_id]}"
             fi
         elif [[ "$cmd" =~ $AGENT_COMMANDS_PATTERN ]]; then
-            badge="🤖 💤 Idle"
+            badge="🤖 💤 Idle    "
             label="idle in $(basename "$path")"
         fi
 
         if [[ -n "$badge" ]]; then
             count=$((count + 1))
             local display_ctx="[$sess:$win.$pane] $cmd"
+            if [[ ${#display_ctx} -gt 16 ]]; then
+                display_ctx="${display_ctx:0:13}..."
+            fi
+
             local repo_name
             repo_name=$(basename "$path")
-            local display_label="$label"
-            if [[ ${#display_label} -gt 28 ]]; then
-                display_label="${display_label:0:25}..."
+            if [[ ${#repo_name} -gt 24 ]]; then
+                repo_name="${repo_name:0:21}..."
             fi
-            printf "%-15s │ %-18s │ %-20s │ %s\t%s\n" "$badge" "$display_ctx" "$repo_name" "$display_label" "$pane_id"
+
+            local display_label="$label"
+            if [[ ${#display_label} -gt 32 ]]; then
+                display_label="${display_label:0:29}..."
+            fi
+
+            printf "%s│ %-16s │ %-24s │ %s\t%s\n" "$badge" "$display_ctx" "$repo_name" "$display_label" "$pane_id"
         fi
     done <<< "$panes_list"
 
     if [[ $count -eq 0 ]]; then
-        printf "%-15s │ %-18s │ %-20s │ %s\t%s\n" "🤖 Empty" "[0:0.0]" "none" "No agent sessions found on tmux server" ""
+        printf "%s│ %-16s │ %-24s │ %s\t%s\n" "🤖 Empty      " "[0:0.0]" "none" "No agent sessions found on tmux server" ""
     fi
 }
 
