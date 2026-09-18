@@ -3,6 +3,9 @@
 # Monitors Google DeepMind Antigravity sessions, classifies interactive prompts,
 # and normalizes in-place thinking spinners to prevent false unread alarms.
 
+# Default command triggers registered in the routing table
+sentinel_antigravity_default_commands=("agy" "antigravity")
+
 sentinel_antigravity_matches() {
     local cmd="$1"
     local pattern="${TMUX_GLANCE_ANTIGRAVITY_PATTERN:-^(agy|antigravity)$}"

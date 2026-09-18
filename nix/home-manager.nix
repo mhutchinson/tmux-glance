@@ -48,6 +48,18 @@ in {
         description = "Popup window height.";
       };
     };
+
+    disabledSentinels = mkOption {
+      type = types.listOf types.str;
+      default = [ ];
+      description = "List of sentinel names to disable completely (e.g. [ \"claude\" ]).";
+    };
+
+    routes = mkOption {
+      type = types.attrsOf types.str;
+      default = { };
+      description = "Command-to-sentinel routing overrides (e.g. { chat = \"generic\"; my-bot = \"antigravity\"; }).";
+    };
   };
 
   config = mkIf cfg.enable {
@@ -57,6 +69,12 @@ in {
       # ==========================================
       # tmux-glance: ambient sentinel orchestration
       # ==========================================
+      ${optionalString (cfg.disabledSentinels != [ ]) ''
+        set -g @glance_disabled_sentinels '${concatStringsSep "," cfg.disabledSentinels}'
+      ''}
+      ${optionalString (cfg.routes != { }) ''
+        set -g @glance_routes '${concatStringsSep "," (mapAttrsToList (k: v: "${k}=${v}") cfg.routes)}'
+      ''}
       bind-key ${cfg.keybindings.glance} display-popup -E -w ${cfg.popup.width} -h ${cfg.popup.height} "${cfg.package}/bin/tmux-glance list-all"
       bind-key ${cfg.keybindings.hub} display-popup -E -w ${cfg.popup.width} -h ${cfg.popup.height} "${cfg.package}/bin/tmux-glance list"
       bind-key ${cfg.keybindings.vigil} run-shell "${cfg.package}/bin/tmux-glance toggle-vigil"

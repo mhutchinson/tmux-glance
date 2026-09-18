@@ -41,6 +41,7 @@ done
 
 # Fallback sentinels if directory not found
 if [[ ${#SENTINELS[@]} -eq 0 ]]; then
+    sentinel_antigravity_default_commands=("agy" "antigravity")
     sentinel_antigravity_matches() {
         local cmd="$1"
         [[ "$cmd" =~ ^(agy|antigravity)$ ]]
@@ -67,6 +68,7 @@ if [[ ${#SENTINELS[@]} -eq 0 ]]; then
             | (md5 -q 2>/dev/null || md5sum 2>/dev/null | cut -d' ' -f1 || cksum | cut -d' ' -f1)
     }
 
+    sentinel_generic_default_commands=()
     sentinel_generic_matches() { return 0; }
     sentinel_generic_classify() {
         local pane_id="$1" path="$2" cmd="$3"
@@ -80,14 +82,65 @@ if [[ ${#SENTINELS[@]} -eq 0 ]]; then
     SENTINELS=("antigravity" "generic")
 fi
 
+# Parse disabled sentinels from tmux options or environment
+disabled_str="$(tmux show-option -gv @glance_disabled_sentinels 2>/dev/null || echo "${TMUX_GLANCE_DISABLED_SENTINELS:-}")"
+declare -A DISABLED_SENTINELS
+if [[ -n "$disabled_str" ]]; then
+    IFS=',' read -r -a _dis_arr <<< "$disabled_str"
+    for _d in "${_dis_arr[@]}"; do
+        _d="$(echo "$_d" | xargs)"
+        [[ -n "$_d" ]] && DISABLED_SENTINELS["$_d"]=1
+    done
+fi
+
+# Build O(1) Command Routing Table
+declare -A COMMAND_MAP
+
+# 1. Populate default suggested commands from loaded, active sentinels
+for s in "${SENTINELS[@]}"; do
+    [[ -n "${DISABLED_SENTINELS[$s]:-}" ]] && continue
+    eval "_s_cmds=(\"\${sentinel_${s}_default_commands[@]:-}\")" 2>/dev/null || true
+    for c in "${_s_cmds[@]}"; do
+        [[ -n "$c" ]] && COMMAND_MAP["$c"]="$s"
+    done
+done
+
+# 2. Apply user-configured route overrides (e.g. chat=generic,my-cli=antigravity)
+routes_str="$(tmux show-option -gv @glance_routes 2>/dev/null || echo "${TMUX_GLANCE_ROUTES:-}")"
+if [[ -n "$routes_str" ]]; then
+    IFS=',' read -r -a _rt_arr <<< "$routes_str"
+    for _r in "${_rt_arr[@]}"; do
+        _r="$(echo "$_r" | xargs)"
+        [[ -z "$_r" ]] && continue
+        if [[ "$_r" =~ ^([^=]+)=([^=]+)$ ]]; then
+            _c="${BASH_REMATCH[1]}"
+            _t="${BASH_REMATCH[2]}"
+            _c="$(echo "$_c" | xargs)"
+            _t="$(echo "$_t" | xargs)"
+            COMMAND_MAP["$_c"]="$_t"
+        fi
+    done
+fi
+
 # Resolve matching sentinel for a command
 get_sentinel() {
     local cmd="$1"
-    for s in "${SENTINELS[@]}"; do
-        if [[ "$s" == "generic" ]]; then
-            continue
+    local mapped="${COMMAND_MAP[$cmd]:-}"
+    if [[ -n "$mapped" ]]; then
+        if [[ -n "${DISABLED_SENTINELS[$mapped]:-}" ]]; then
+            echo "generic"
+            return 0
         fi
+        echo "$mapped"
+        return 0
+    fi
+
+    # Fallback to dynamic matches() only if not disabled
+    for s in "${SENTINELS[@]}"; do
+        [[ "$s" == "generic" ]] && continue
+        [[ -n "${DISABLED_SENTINELS[$s]:-}" ]] && continue
         if "sentinel_${s}_matches" "$cmd" 2>/dev/null; then
+            COMMAND_MAP["$cmd"]="$s" # Cache for future calls
             echo "$s"
             return 0
         fi

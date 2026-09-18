@@ -274,11 +274,8 @@ To add support for a new tool (e.g. Claude Code, Aider, or a custom build tool),
 ```bash
 #!/usr/bin/env bash
 
-# 1. Matcher: return 0 if this sentinel handles the command
-sentinel_myagent_matches() {
-    local cmd="$1"
-    [[ "$cmd" =~ ^(myagent|myagent-cli)$ ]]
-}
+# 1. Suggested default commands for the routing table
+sentinel_myagent_default_commands=("myagent" "myagent-cli")
 
 # 2. Classifier: return "state\tlabel"
 #    Available states: waiting | running | done | idle
@@ -306,6 +303,44 @@ sentinel_myagent_fingerprint() {
 ```
 
 Drop it in `~/.config/tmux-glance/sentinels/myagent.sh` and it will be loaded automatically!
+
+---
+
+## Configuring Routes & Disabling Sentinels
+
+`tmux-glance` decouples sentinel implementations from command names through an **$O(1)$ Command Routing Table**.
+
+If you have a binary with a colliding name (a doppelgänger CLI) or want to ignore an upstream sentinel, you can configure routes and disables with zero code changes:
+
+### In Nix / Home Manager (`home.nix`):
+
+```nix
+programs.tmux-glance = {
+  enable = true;
+
+  # Completely disable specific sentinels:
+  disabledSentinels = [ "claude" "aider" ];
+
+  # Command routing table overrides:
+  routes = {
+    # Resolve doppelgänger: force 'chat' to be treated as a normal shell
+    "chat" = "generic";
+
+    # Route custom wrappers or binary names to a sentinel:
+    "my-internal-agent" = "antigravity";
+  };
+};
+```
+
+### In `~/.tmux.conf` (TPM / Manual):
+
+```tmux
+# Disable specific sentinels:
+set -g @glance_disabled_sentinels 'claude,aider'
+
+# Command route overrides: <command>=<sentinel>
+set -g @glance_routes 'chat=generic,my-internal-agent=antigravity'
+```
 
 ---
 
