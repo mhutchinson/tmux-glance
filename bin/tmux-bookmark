@@ -7,6 +7,12 @@ AGENT_COMMANDS_PATTERN="${TMUX_AGENT_COMMANDS:-^(agy|antigravity)$}"
 bookmarks_file="$HOME/.tmux-bookmarks"
 touch "$bookmarks_file"
 
+# Portable screen content hash
+hash_screen() {
+    local pane="$1"
+    tmux capture-pane -p -t "$pane" 2>/dev/null | (md5 -q 2>/dev/null || md5sum 2>/dev/null | cut -d' ' -f1 || cksum | cut -d' ' -f1)
+}
+
 # Atomic lock helpers
 acquire_lock() {
     local lock_dir="${bookmarks_file}.lock"
@@ -49,7 +55,7 @@ prune_bookmarks() {
     while IFS=$'\t' read -r pane_id session_name window_index pane_index path command label kind state || [[ -n "$pane_id" ]]; do
         [[ -z "$pane_id" ]] && continue
         kind="${kind:-manual}"
-        state="${state:-pinned}"
+        state="${state:-watching}"
         if [[ " $alive_panes " =~ " $pane_id " ]]; then
             printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n" \
                 "$pane_id" "$session_name" "$window_index" "$pane_index" "$path" "$command" "$label" "$kind" "$state" >> "$temp_file"
@@ -58,7 +64,7 @@ prune_bookmarks() {
     mv "$temp_file" "$bookmarks_file"
 }
 
-# Add a manual bookmark (pinned)
+# Add a sentinel watch (manual bookmark)
 add_bookmark() {
     local label="$1"
     local info pane_id session_name window_index pane_index path command
@@ -72,19 +78,24 @@ add_bookmark() {
         label="$command in $(basename "$path")"
     fi
 
+    local initial_hash
+    initial_hash=$(hash_screen "$pane_id")
+    tmux set-option -p -t "$pane_id" @watch_snapshot "$initial_hash" 2>/dev/null || true
+
     local temp_file
     temp_file=$(mktemp)
     if [[ -f "$bookmarks_file" ]]; then
         grep -v "^${pane_id}	" "$bookmarks_file" > "$temp_file" 2>/dev/null || true
     fi
 
-    printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\tmanual\tpinned\n" \
+    printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\tmanual\twatching\n" \
         "$pane_id" "$session_name" "$window_index" "$pane_index" "$path" "$command" "$label" >> "$temp_file"
     mv "$temp_file" "$bookmarks_file"
-    tmux display-message "📌 Pinned: $label"
+    tmux refresh-client -S 2>/dev/null || true
+    tmux display-message "👁️ Watching: $label"
 }
 
-# Remove a bookmark manually
+# Remove a watch manually
 remove_bookmark() {
     prune_bookmarks
 
@@ -97,16 +108,22 @@ remove_bookmark() {
         temp_file=$(mktemp)
         grep -v "^${pane_id}	" "$bookmarks_file" > "$temp_file" 2>/dev/null || true
         mv "$temp_file" "$bookmarks_file"
-        tmux display-message "📌 Unpinned: $stored_label"
+        tmux set-option -u -p -t "$pane_id" @watch_snapshot 2>/dev/null || true
+        tmux refresh-client -S 2>/dev/null || true
+        tmux display-message "👁️ Stopped watching: $stored_label"
     else
-        tmux display-message "Not pinned."
+        tmux display-message "Not watched."
     fi
 }
 
-is_pinned() {
+is_watched() {
     local pane_id
     pane_id=$(tmux display-message -p '#{pane_id}')
     grep -q "^${pane_id}	" "$bookmarks_file" 2>/dev/null
+}
+
+is_pinned() {
+    is_watched
 }
 
 # Return list of currently focused pane IDs across all attached clients
@@ -114,7 +131,7 @@ get_focused_panes() {
     tmux list-clients -F '#{pane_id}' 2>/dev/null || true
 }
 
-# Scan agent panes across tmux and update background agent watch states
+# Scan agent and watched panes across tmux and update states
 scan_agents() {
     prune_bookmarks
 
@@ -127,7 +144,7 @@ scan_agents() {
     while IFS=$'\t' read -r p_id s_name w_idx p_idx p_path p_cmd p_lbl p_k p_st || [[ -n "$p_id" ]]; do
         [[ -z "$p_id" ]] && continue
         bm_kind["$p_id"]="${p_k:-manual}"
-        bm_state["$p_id"]="${p_st:-pinned}"
+        bm_state["$p_id"]="${p_st:-watching}"
         bm_label["$p_id"]="${p_lbl}"
     done < "$bookmarks_file"
 
@@ -136,7 +153,7 @@ scan_agents() {
     panes_list=$(tmux list-panes -a -F '#{pane_id}|#{session_name}|#{window_index}|#{pane_index}|#{pane_current_path}|#{pane_current_command}|#{pane_tty}' 2>/dev/null || true)
 
     declare -A curr_sess curr_win curr_pane curr_path curr_cmd
-    # Process all panes running matched agent commands
+    # Process all panes running matched agent commands or manual sentinel watches
     while IFS='|' read -r pane_id sess win pane path cmd tty; do
         [[ -z "$pane_id" ]] && continue
 
@@ -146,16 +163,40 @@ scan_agents() {
         curr_path["$pane_id"]="$path"
         curr_cmd["$pane_id"]="$cmd"
 
-        # Manual bookmarks are never touched by auto-agent tracking
-        if [[ "${bm_kind[$pane_id]:-}" == "manual" ]]; then
-            continue
-        fi
-
         local is_focused=0
         if [[ " $focused_panes " =~ " $pane_id " ]]; then
             is_focused=1
         fi
 
+        # Sentinel Watch handling for manual bookmarks
+        if [[ "${bm_kind[$pane_id]:-}" == "manual" ]]; then
+            local curr_hash
+            curr_hash=$(hash_screen "$pane_id")
+            local prev_hash
+            prev_hash=$(tmux show-option -pv -t "$pane_id" @watch_snapshot 2>/dev/null || true)
+
+            if [[ $is_focused -eq 1 ]]; then
+                # Pane is currently focused by user; keep snapshot synced so active typing doesn't trigger alarm
+                tmux set-option -p -t "$pane_id" @watch_snapshot "$curr_hash" 2>/dev/null || true
+                if [[ "${bm_state[$pane_id]}" == "alert" ]]; then
+                    bm_state["$pane_id"]="watching"
+                    updated=1
+                fi
+            else
+                # Background pane being watched: check if screen output changed
+                if [[ -z "$prev_hash" ]]; then
+                    tmux set-option -p -t "$pane_id" @watch_snapshot "$curr_hash" 2>/dev/null || true
+                elif [[ "$curr_hash" != "$prev_hash" ]]; then
+                    if [[ "${bm_state[$pane_id]}" != "alert" ]]; then
+                        bm_state["$pane_id"]="alert"
+                        updated=1
+                    fi
+                fi
+            fi
+            continue
+        fi
+
+        # Autonomous agent tracking
         if [[ "$cmd" =~ $AGENT_COMMANDS_PATTERN ]]; then
             local tail_text
             tail_text=$(tmux capture-pane -p -t "$pane_id" 2>/dev/null | tail -n 4)
@@ -283,6 +324,26 @@ on_focus() {
             grep -v "^${target_pane}	" "$bookmarks_file" > "$temp_file" 2>/dev/null || true
             mv "$temp_file" "$bookmarks_file"
             tmux refresh-client -S 2>/dev/null || true
+        elif [[ "$kind" == "manual" ]]; then
+            # Sync watch snapshot and acknowledge alert
+            local curr_hash
+            curr_hash=$(hash_screen "$target_pane")
+            tmux set-option -p -t "$target_pane" @watch_snapshot "$curr_hash" 2>/dev/null || true
+
+            if [[ "$state" == "alert" ]]; then
+                local temp_file
+                temp_file=$(mktemp)
+                while IFS=$'\t' read -r p_id s_n w_i p_i p_p p_c p_l p_k p_st || [[ -n "$p_id" ]]; do
+                    [[ -z "$p_id" ]] && continue
+                    if [[ "$p_id" == "$target_pane" ]]; then
+                        p_st="watching"
+                    fi
+                    printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n" \
+                        "$p_id" "$s_n" "$w_i" "$p_i" "$p_p" "$p_c" "$p_l" "$p_k" "$p_st" >> "$temp_file"
+                done < "$bookmarks_file"
+                mv "$temp_file" "$bookmarks_file"
+                tmux refresh-client -S 2>/dev/null || true
+            fi
         fi
     fi
 }
@@ -291,13 +352,20 @@ on_focus() {
 status_summary() {
     scan_agents
 
+    local alert_count=0
+    local watch_count=0
     local waiting_count=0
     local running_count=0
     local done_count=0
 
     while IFS=$'\t' read -r p_id s_name w_idx p_idx p_path p_cmd p_lbl p_k p_st || [[ -n "$p_id" ]]; do
         [[ -z "$p_id" ]] && continue
-        if [[ "$p_k" == "auto" ]]; then
+        if [[ "$p_k" == "manual" ]]; then
+            case "$p_st" in
+                alert) alert_count=$((alert_count + 1)) ;;
+                *)     watch_count=$((watch_count + 1)) ;;
+            esac
+        elif [[ "$p_k" == "auto" ]]; then
             case "$p_st" in
                 waiting) waiting_count=$((waiting_count + 1)) ;;
                 running) running_count=$((running_count + 1)) ;;
@@ -307,6 +375,12 @@ status_summary() {
     done < "$bookmarks_file"
 
     local out=""
+    if [[ $alert_count -gt 0 ]]; then
+        out="${out}#[fg=#f38ba8,bold]🚨 ${alert_count}#[default] "
+    fi
+    if [[ $watch_count -gt 0 ]]; then
+        out="${out}#[fg=#b4befe]👁️ ${watch_count}#[default] "
+    fi
     if [[ $waiting_count -gt 0 ]]; then
         out="${out}#[fg=#fab387,bold]🤖 ⏳ ${waiting_count}#[default] "
     fi
@@ -324,26 +398,49 @@ status_summary() {
 
 get_attention_list() {
     if [[ ! -s "$bookmarks_file" ]] || ! grep -q '[^[:space:]]' "$bookmarks_file" 2>/dev/null; then
-        printf "%s│ %-16s │ %-24s │ %s\t%s\n" "📌 Empty      " "[0:0.0]" "none" "No active pins or agent alerts (Ctrl-b for all bots)" ""
+        printf "%s│ %-16s │ %-24s │ %s\t%s\n" "👁️ Empty      " "[0:0.0]" "none" "No active watches or agent alerts (Ctrl-b for all bots)" ""
         return 0
     fi
 
+    local lines_with_prio=()
     while IFS=$'\t' read -r pane_id session_name window_index pane_index path command label kind state || [[ -n "$pane_id" ]]; do
         [[ -z "$pane_id" ]] && continue
         kind="${kind:-manual}"
-        state="${state:-pinned}"
+        state="${state:-watching}"
 
         local badge=""
+        local prio=5
         case "$kind" in
             manual)
-                badge="📌 Pinned     "
+                case "$state" in
+                    alert)
+                        badge="🚨 Alert      "
+                        prio=1
+                        ;;
+                    *)
+                        badge="👁️ Watching   "
+                        prio=5
+                        ;;
+                esac
                 ;;
             auto)
                 case "$state" in
-                    waiting) badge="🤖 ⏳ Waiting " ;;
-                    running) badge="🤖 ⚡ Running " ;;
-                    done)    badge="🤖 ✓ Finished " ;;
-                    *)       badge="🤖 $state      " ;;
+                    waiting)
+                        badge="🤖 ⏳ Waiting "
+                        prio=2
+                        ;;
+                    done)
+                        badge="🤖 ✓ Finished "
+                        prio=3
+                        ;;
+                    running)
+                        badge="🤖 ⚡ Running "
+                        prio=4
+                        ;;
+                    *)
+                        badge="🤖 $state      "
+                        prio=6
+                        ;;
                 esac
                 ;;
         esac
@@ -364,9 +461,13 @@ get_attention_list() {
             display_label="${display_label:0:29}..."
         fi
 
-        # Col1: Badge (pre-padded) | Col2: Context | Col3: Repo | Col4: Label \t Col5: pane_id (hidden)
-        printf "%s│ %-16s │ %-24s │ %s\t%s\n" "$badge" "$display_ctx" "$repo_name" "$display_label" "$pane_id"
+        # Priority prefix for sorting items requiring immediate attention first
+        lines_with_prio+=("$(printf "%d\t%s│ %-16s │ %-24s │ %s\t%s" "$prio" "$badge" "$display_ctx" "$repo_name" "$display_label" "$pane_id")")
     done < "$bookmarks_file"
+
+    if [[ ${#lines_with_prio[@]} -gt 0 ]]; then
+        printf "%s\n" "${lines_with_prio[@]}" | sort -n -k1,1 | cut -f2-
+    fi
 }
 
 get_all_bots_list() {
@@ -375,7 +476,7 @@ get_all_bots_list() {
     while IFS=$'\t' read -r p_id s_name w_idx p_idx p_path p_cmd p_lbl p_k p_st || [[ -n "$p_id" ]]; do
         [[ -z "$p_id" ]] && continue
         bm_kind["$p_id"]="${p_k:-manual}"
-        bm_state["$p_id"]="${p_st:-pinned}"
+        bm_state["$p_id"]="${p_st:-watching}"
         bm_label["$p_id"]="${p_lbl}"
     done < "$bookmarks_file"
 
@@ -391,7 +492,11 @@ get_all_bots_list() {
 
         if [[ -n "${bm_kind[$pane_id]:-}" ]]; then
             if [[ "${bm_kind[$pane_id]}" == "manual" ]]; then
-                badge="📌 Pinned     "
+                if [[ "${bm_state[$pane_id]}" == "alert" ]]; then
+                    badge="🚨 Alert      "
+                else
+                    badge="👁️ Watching   "
+                fi
                 label="${bm_label[$pane_id]}"
             else
                 case "${bm_state[$pane_id]}" in
@@ -492,7 +597,7 @@ list_bookmarks() {
         --delimiter=$'\t' \
         --with-nth=1 \
         --ansi \
-        --header="📌 Bookmarks & Agents (Ctrl-b: toggle All Bots / Attention | Enter: jump | Esc: cancel)" \
+        --header="👁️ Watches & Agents (Ctrl-b: toggle All Bots / Attention | Enter: jump | Esc: cancel)" \
         --layout=reverse \
         --border=rounded \
         --info=inline \
@@ -523,8 +628,8 @@ case "${1:-list}" in
     remove)
         with_lock remove_bookmark
         ;;
-    is-pinned)
-        is_pinned
+    is-watched|is-pinned)
+        is_watched
         ;;
     scan)
         with_lock scan_agents
@@ -548,7 +653,7 @@ case "${1:-list}" in
         list_bookmarks "${1:-auto}"
         ;;
     *)
-        echo "Usage: $0 {add|remove|is-pinned|scan|on-focus|status|list-raw|list-all|list}"
+        echo "Usage: $0 {add|remove|is-watched|is-pinned|scan|on-focus|status|list-raw|list-all|list}"
         exit 1
         ;;
 esac
