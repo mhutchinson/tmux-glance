@@ -160,15 +160,31 @@ acquire_lock() {
 
 ---
 
-## 6. Ergonomics & Keybinding Hierarchy
+## 6. Ergonomics & Tiered Keybinding Architecture
 
-| Keybinding | Action | Purpose |
+To respect established tmux environments and prevent keybinding namespace pollution, `tmux-glance` enforces a strict **Two-Tier Keybinding Policy**:
+
+### Tier 1: Core Non-Contentious Bindings (Enabled by Default)
+Only binds dedicated, non-disruptive keys. Preserves all standard tmux navigation, copy-mode, and window management:
+
+| Keybinding | Scope | Purpose |
 | :--- | :--- | :--- |
-| `prefix g` | **Glance Mode** | Server-wide Fleet View of all running agents and vigils. |
-| `prefix b` | **Attention Hub** | Urgent queue (waiting prompts, completed runs, alerts). |
-| `prefix v` | **Vigil Toggle** | Instantly watch/unwatch the current pane for terminal output. |
-| `Ctrl-b` *(in fzf)* | **Toggle View** | Flip between Attention Hub and Glance Fleet dynamically. |
-| `Enter` *(in fzf)* | **Jump** | Instantly switch client, window, and pane to target. |
+| `prefix g` | Global | **Glance Mode:** Server-wide Fleet View of all running agents and vigils. |
+| `prefix b` | Global | **Attention Hub:** Urgent queue (waiting prompts, completed runs, alerts). |
+| `prefix v` | Global | **Vigil Toggle:** Instantly watch/unwatch current pane for output. |
+| `Ctrl-b` | *Popup only* | **Toggle View:** Flip between Attention Hub and Glance Fleet inside fzf. |
+| `Enter` | *Popup only* | **Jump:** Instantly switch client, window, and pane to target. |
+
+### Tier 2: Power-User & Direct Navigation (Strictly Opt-In)
+Global navigation chords, jumplist rewinds, and queue cycling can collide with personal shortcuts (e.g. tmux's default `[` for copy-mode or custom window switchers). These are **disabled by default** and require explicit opt-in:
+
+| Keybinding | Scope | Feature | Config Option |
+| :--- | :--- | :--- | :--- |
+| `prefix C-z` / `prefix C-y` | Global | **Jumplist Undo/Redo** (v0.8) | `@glance_enable_jumplist 'on'` |
+| `prefix -r u` / `prefix -r U` | Global | **Repeatable History Walk** (v0.8) | `@glance_enable_jumplist 'on'` |
+| `prefix -r ]` / `prefix -r [` | Global | **Quickfix Alert Cycling** (v0.10) | `@glance_enable_quickfix 'on'` |
+
+*Note: Users who do not opt into Tier 2 bindings still have 100% access to history and navigation features from inside the popup dashboard (`Ctrl-h`, `Ctrl-s`, `Ctrl-w`, etc.) without polluting their global prefix table.*
 
 ---
 
@@ -201,7 +217,7 @@ acquire_lock() {
     - **Jump Back (Undo):** Pop target from Back stack, push current pane to Forward stack, switch to target.
     - **Jump Forward (Redo):** Pop target from Forward stack, push current pane to Back stack, switch to target.
     - **Liveness Invariant:** Silently discard stale/dead panes when popping before switching.
-  - **Instant Keyboard Traversal (No Menu Required):**
+  - **Instant Keyboard Traversal (Tier 2 Opt-in, No Menu Required):**
     - `prefix C-z` (Undo) & `prefix C-y` / `prefix C-Z` (Redo) for instant single-chord backtracking (safely replacing the dangerous default tmux `suspend-client` on `C-z`).
     - Repeatable bindings via `bind-key -r u` (Undo) and `bind-key -r U` (Redo), allowing multi-hop rewinds by tapping `u u u` within the tmux `repeat-time` window without re-pressing `prefix`.
   - **Visual Traversal Inspector (`Ctrl-h` in fzf):** Pressing `Ctrl-h` within the Glance popup opens a chronological list of recent jump locations with live previews.
@@ -216,7 +232,7 @@ acquire_lock() {
   - **Strict Deterministic Queue Ordering:**
     1. *Primary Sort (Severity Rank):* Alerts (`🚨`) > Blocked Agents (`🤖 ⏳`) > Finished Tasks (`🤖 ✓`).
     2. *Secondary Tie-Breaker:* Stable ordering by state timestamp (oldest pending prompt first) or server pane hierarchy (`session:window.pane`) to ensure predictable muscle memory.
-  - **Repeatable Keybindings (`-r`):**
+  - **Repeatable Keybindings (Tier 2 Opt-in via `-r`):**
     - `prefix -r ]` — Jump to next attention item.
     - `prefix -r [` — Jump to previous attention item.
     - Rapid tapping (e.g. `prefix ] ] ]`) allows whizzing across multiple items within tmux's `repeat-time` window without re-pressing `prefix`.
