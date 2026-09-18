@@ -258,59 +258,153 @@ status_summary() {
     fi
 }
 
-list_bookmarks() {
-    scan_agents
-
+get_attention_list() {
     if [[ ! -s "$bookmarks_file" ]]; then
-        tmux display-message "No active bookmarks or running agents."
-        exit 0
+        printf "%-15s │ %-18s │ %-20s │ %s\t%s\n" "📌 Empty" "[0:0.0]" "none" "No active pins or agent alerts (Ctrl-b for all bots)" ""
+        return 0
     fi
 
-    local formatted_list
-    formatted_list=$(
-        while IFS=$'\t' read -r pane_id session_name window_index pane_index path command label kind state || [[ -n "$pane_id" ]]; do
-            [[ -z "$pane_id" ]] && continue
-            kind="${kind:-manual}"
-            state="${state:-pinned}"
+    while IFS=$'\t' read -r pane_id session_name window_index pane_index path command label kind state || [[ -n "$pane_id" ]]; do
+        [[ -z "$pane_id" ]] && continue
+        kind="${kind:-manual}"
+        state="${state:-pinned}"
 
-            local badge=""
-            case "$kind" in
-                manual)
-                    badge="📌 Pinned"
-                    ;;
-                auto)
-                    case "$state" in
-                        waiting) badge="🤖 ⏳ Waiting" ;;
-                        running) badge="🤖 ⚡ Running" ;;
-                        done)    badge="🤖 ✓ Finished" ;;
-                        *)       badge="🤖 $state" ;;
-                    esac
-                    ;;
-            esac
+        local badge=""
+        case "$kind" in
+            manual)
+                badge="📌 Pinned"
+                ;;
+            auto)
+                case "$state" in
+                    waiting) badge="🤖 ⏳ Waiting" ;;
+                    running) badge="🤖 ⚡ Running" ;;
+                    done)    badge="🤖 ✓ Finished" ;;
+                    *)       badge="🤖 $state" ;;
+                esac
+                ;;
+        esac
 
+        local display_label="$label"
+        if [[ ${#display_label} -gt 28 ]]; then
+            display_label="${display_label:0:25}..."
+        fi
+        
+        local display_ctx="[$session_name:$window_index.$pane_index] $command"
+        local repo_name
+        repo_name=$(basename "$path")
+
+        # Col1: Badge | Col2: Context | Col3: Repo | Col4: Label \t Col5: pane_id (hidden)
+        printf "%-15s │ %-18s │ %-20s │ %s\t%s\n" "$badge" "$display_ctx" "$repo_name" "$display_label" "$pane_id"
+    done < "$bookmarks_file"
+}
+
+get_all_bots_list() {
+    declare -A bm_kind bm_state bm_label
+    local p_id s_name w_idx p_idx p_path p_cmd p_lbl p_k p_st
+    while IFS=$'\t' read -r p_id s_name w_idx p_idx p_path p_cmd p_lbl p_k p_st || [[ -n "$p_id" ]]; do
+        [[ -z "$p_id" ]] && continue
+        bm_kind["$p_id"]="${p_k:-manual}"
+        bm_state["$p_id"]="${p_st:-pinned}"
+        bm_label["$p_id"]="${p_lbl}"
+    done < "$bookmarks_file"
+
+    local panes_list
+    panes_list=$(tmux list-panes -a -F '#{pane_id}|#{session_name}|#{window_index}|#{pane_index}|#{pane_current_path}|#{pane_current_command}' 2>/dev/null || true)
+
+    local count=0
+    while IFS='|' read -r pane_id sess win pane path cmd; do
+        [[ -z "$pane_id" ]] && continue
+
+        local badge=""
+        local label=""
+
+        if [[ -n "${bm_kind[$pane_id]:-}" ]]; then
+            if [[ "${bm_kind[$pane_id]}" == "manual" ]]; then
+                badge="📌 Pinned"
+                label="${bm_label[$pane_id]}"
+            else
+                case "${bm_state[$pane_id]}" in
+                    waiting) badge="🤖 ⏳ Waiting" ;;
+                    running) badge="🤖 ⚡ Running" ;;
+                    done)    badge="🤖 ✓ Finished" ;;
+                    *)       badge="🤖 ${bm_state[$pane_id]}" ;;
+                esac
+                label="${bm_label[$pane_id]}"
+            fi
+        elif [[ "$cmd" =~ $AGENT_COMMANDS_PATTERN ]]; then
+            badge="🤖 💤 Idle"
+            label="idle in $(basename "$path")"
+        fi
+
+        if [[ -n "$badge" ]]; then
+            count=$((count + 1))
+            local display_ctx="[$sess:$win.$pane] $cmd"
+            local repo_name
+            repo_name=$(basename "$path")
             local display_label="$label"
             if [[ ${#display_label} -gt 28 ]]; then
                 display_label="${display_label:0:25}..."
             fi
-            
-            local display_ctx="[$session_name:$window_index.$pane_index] $command"
-            local repo_name
-            repo_name=$(basename "$path")
-
-            # Col1: Badge | Col2: Context | Col3: Repo | Col4: Label \t Col5: pane_id (hidden)
             printf "%-15s │ %-18s │ %-20s │ %s\t%s\n" "$badge" "$display_ctx" "$repo_name" "$display_label" "$pane_id"
-        done < "$bookmarks_file"
-    )
+        fi
+    done <<< "$panes_list"
+
+    if [[ $count -eq 0 ]]; then
+        printf "%-15s │ %-18s │ %-20s │ %s\t%s\n" "🤖 Empty" "[0:0.0]" "none" "No agent sessions found on tmux server" ""
+    fi
+}
+
+list_raw() {
+    local req_mode="${1:-toggle}"
+    local mode_file="${TMPDIR:-/tmp}/tmux-bookmark-mode-${UID:-$(id -u)}"
+    local current_mode
+    current_mode=$(cat "$mode_file" 2>/dev/null || echo "attention")
+
+    local target_mode
+    if [[ "$req_mode" == "toggle" ]]; then
+        if [[ "$current_mode" == "attention" ]]; then
+            target_mode="all"
+        else
+            target_mode="attention"
+        fi
+    else
+        target_mode="$req_mode"
+    fi
+
+    echo "$target_mode" > "$mode_file"
+
+    if [[ "$target_mode" == "all" ]]; then
+        get_all_bots_list
+    else
+        get_attention_list
+    fi
+}
+
+list_bookmarks() {
+    scan_agents
+
+    local mode_file="${TMPDIR:-/tmp}/tmux-bookmark-mode-${UID:-$(id -u)}"
+    local initial_mode="attention"
+
+    # Smart fallback: if attention list is empty, open directly in all bots view
+    if [[ ! -s "$bookmarks_file" ]]; then
+        initial_mode="all"
+    fi
+    echo "$initial_mode" > "$mode_file"
+
+    local formatted_list
+    formatted_list=$(list_raw "$initial_mode")
 
     local selected
     selected=$(echo "$formatted_list" | fzf \
         --delimiter=$'\t' \
         --with-nth=1 \
         --ansi \
-        --header="📌 Bookmarks & Background Agents (Enter to jump, Ctrl-C to cancel):" \
+        --header="📌 Bookmarks & Agents (Ctrl-b: toggle All Bots / Attention | Enter: jump | Esc: cancel)" \
         --layout=reverse \
         --border=rounded \
         --info=inline \
+        --bind "ctrl-b:reload($HOME/bin/tmux-bookmark list-raw toggle)" \
         --preview 'tmux capture-pane -e -p -t {2} 2>/dev/null | awk '\''{lines[NR]=$0} END {while (NR>0 && lines[NR] ~ /^[[:space:]]*$/) NR--; for (i=1; i<=NR; i++) print lines[i]}'\'' | tail -n 30' \
         --preview-window='down:60%:wrap:follow' \
     )
@@ -318,12 +412,12 @@ list_bookmarks() {
     if [[ -n "$selected" ]]; then
         local target_pane_id
         target_pane_id=$(echo "$selected" | cut -f2)
-        if tmux has-session -t "$target_pane_id" 2>/dev/null; then
+        if [[ -n "$target_pane_id" ]] && tmux has-session -t "$target_pane_id" 2>/dev/null; then
             tmux select-pane -t "$target_pane_id"
             tmux select-window -t "$target_pane_id"
             tmux switch-client -t "$target_pane_id"
             on_focus "$target_pane_id"
-        else
+        elif [[ -n "$target_pane_id" ]]; then
             tmux display-message "Target pane no longer exists."
         fi
     fi
@@ -350,11 +444,15 @@ case "${1:-list}" in
     status)
         status_summary
         ;;
+    list-raw)
+        shift
+        list_raw "${1:-toggle}"
+        ;;
     list)
         list_bookmarks
         ;;
     *)
-        echo "Usage: $0 {add|remove|is-pinned|scan|on-focus|status|list}"
+        echo "Usage: $0 {add|remove|is-pinned|scan|on-focus|status|list-raw|list}"
         exit 1
         ;;
 esac
