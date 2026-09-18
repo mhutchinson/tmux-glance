@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Ensure UTF-8 locale for multibyte braille spinners and unicode box drawing
+export LC_ALL="${LC_ALL:-C.UTF-8}"
+export LANG="${LANG:-C.UTF-8}"
+
 # Self binary path for internal fzf callbacks
 SELF_BIN="${BASH_SOURCE[0]}"
 if [[ ! -x "$SELF_BIN" ]]; then
@@ -33,7 +37,7 @@ for s_dir in "${SENTINEL_DIRS[@]}"; do
         # shellcheck source=/dev/null
         source "$s_file"
         s_name="$(basename "$s_file" .sh)"
-        if [[ ! " ${SENTINELS[*]} " =~ " ${s_name} " ]]; then
+        if [[ ! " ${SENTINELS[*]} " == *" ${s_name} "* ]]; then
             SENTINELS+=("$s_name")
         fi
     done
@@ -41,6 +45,7 @@ done
 
 # Fallback sentinels if directory not found
 if [[ ${#SENTINELS[@]} -eq 0 ]]; then
+    # shellcheck disable=SC2034
     sentinel_antigravity_default_commands=("agy" "antigravity")
     sentinel_antigravity_matches() {
         local cmd="$1"
@@ -68,6 +73,7 @@ if [[ ${#SENTINELS[@]} -eq 0 ]]; then
             | (md5 -q 2>/dev/null || md5sum 2>/dev/null | cut -d' ' -f1 || cksum | cut -d' ' -f1)
     }
 
+    # shellcheck disable=SC2034
     sentinel_generic_default_commands=()
     sentinel_generic_matches() { return 0; }
     sentinel_generic_classify() {
@@ -99,6 +105,7 @@ declare -A COMMAND_MAP
 # 1. Populate default suggested commands from loaded, active sentinels
 for s in "${SENTINELS[@]}"; do
     [[ -n "${DISABLED_SENTINELS[$s]:-}" ]] && continue
+    _s_cmds=()
     eval "_s_cmds=(\"\${sentinel_${s}_default_commands[@]:-}\")" 2>/dev/null || true
     for c in "${_s_cmds[@]}"; do
         [[ -n "$c" ]] && COMMAND_MAP["$c"]="$s"
@@ -192,7 +199,7 @@ prune_bookmarks() {
     tmux info &>/dev/null || return 0
 
     local alive_panes
-    alive_panes=$(tmux list-panes -a -F '#{pane_id}' 2>/dev/null || true)
+    alive_panes=$(tmux list-panes -a -F '#{pane_id}' 2>/dev/null | tr '\n' ' ' || true)
     [[ -z "$alive_panes" ]] && return 0
 
     local temp_file pane_id session_name window_index pane_index path command label kind state
@@ -201,7 +208,7 @@ prune_bookmarks() {
         [[ -z "$pane_id" ]] && continue
         kind="${kind:-manual}"
         state="${state:-watching}"
-        if [[ " $alive_panes " =~ " $pane_id " ]]; then
+        if [[ " $alive_panes " == *" $pane_id "* ]]; then
             printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n" \
                 "$pane_id" "$session_name" "$window_index" "$pane_index" "$path" "$command" "$label" "$kind" "$state" >> "$temp_file"
         fi
@@ -315,7 +322,7 @@ scan_agents() {
         curr_cmd["$pane_id"]="$cmd"
 
         local is_focused=0
-        if [[ " $focused_panes " =~ " $pane_id " ]]; then
+        if [[ " $focused_panes " == *" $pane_id "* ]]; then
             is_focused=1
         fi
 
@@ -416,6 +423,7 @@ scan_agents() {
                 local agent_alive=0
                 for s in "${SENTINELS[@]}"; do
                     [[ "$s" == "generic" ]] && continue
+                    # shellcheck disable=SC2009
                     if ps -t "$tty_name" -o comm= 2>/dev/null | grep -qE "(agy|antigravity)"; then
                         agent_alive=1
                         break
@@ -735,6 +743,7 @@ list_raw() {
     fi
 }
 
+# shellcheck disable=SC2016
 list_bookmarks() {
     local req_mode="${1:-auto}"
     scan_agents
@@ -760,6 +769,7 @@ list_bookmarks() {
     local formatted_list
     formatted_list=$(list_raw "$initial_mode")
 
+    # shellcheck disable=SC2016
     local selected
     selected=$(echo "$formatted_list" | fzf \
         --delimiter=$'\t' \
@@ -788,44 +798,46 @@ list_bookmarks() {
     fi
 }
 
-case "${1:-list}" in
-    add)
-        shift
-        with_lock add_bookmark "$*"
-        ;;
-    remove)
-        with_lock remove_bookmark
-        ;;
-    toggle-vigil)
-        shift || true
-        with_lock toggle_vigil "$*"
-        ;;
-    is-watched|is-pinned)
-        is_watched
-        ;;
-    scan)
-        with_lock scan_agents
-        ;;
-    on-focus)
-        shift
-        with_lock on_focus "${1:-}"
-        ;;
-    status)
-        with_lock status_summary
-        ;;
-    list-raw)
-        shift
-        list_raw "${1:-toggle}"
-        ;;
-    list-all)
-        list_bookmarks "all"
-        ;;
-    list)
-        shift || true
-        list_bookmarks "${1:-auto}"
-        ;;
-    *)
-        echo "Usage: $0 {add|remove|toggle-vigil|is-watched|scan|on-focus|status|list-raw|list-all|list}"
-        exit 1
-        ;;
-esac
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    case "${1:-list}" in
+        add)
+            shift
+            with_lock add_bookmark "$*"
+            ;;
+        remove)
+            with_lock remove_bookmark
+            ;;
+        toggle-vigil)
+            shift || true
+            with_lock toggle_vigil "$*"
+            ;;
+        is-watched|is-pinned)
+            is_watched
+            ;;
+        scan)
+            with_lock scan_agents
+            ;;
+        on-focus)
+            shift
+            with_lock on_focus "${1:-}"
+            ;;
+        status)
+            with_lock status_summary
+            ;;
+        list-raw)
+            shift
+            list_raw "${1:-toggle}"
+            ;;
+        list-all)
+            list_bookmarks "all"
+            ;;
+        list)
+            shift || true
+            list_bookmarks "${1:-auto}"
+            ;;
+        *)
+            echo "Usage: $0 {add|remove|toggle-vigil|is-watched|scan|on-focus|status|list-raw|list-all|list}"
+            exit 1
+            ;;
+    esac
+fi

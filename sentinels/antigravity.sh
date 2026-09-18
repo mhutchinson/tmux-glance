@@ -4,6 +4,7 @@
 # and normalizes in-place thinking spinners to prevent false unread alarms.
 
 # Default command triggers registered in the routing table
+# shellcheck disable=SC2034
 sentinel_antigravity_default_commands=("agy" "antigravity")
 
 sentinel_antigravity_matches() {

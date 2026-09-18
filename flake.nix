@@ -56,6 +56,33 @@
         }
       );
 
+      checks = forAllSystems (
+        system:
+        let
+          pkgs = nixpkgs.legacyPackages.${system};
+        in
+        {
+          unit-tests = pkgs.runCommand "tmux-glance-tests" {
+            nativeBuildInputs = [
+              pkgs.bash
+              pkgs.tmux
+              pkgs.fzf
+              pkgs.gnugrep
+              pkgs.gnused
+              pkgs.coreutils
+            ];
+          } ''
+            export HOME=$TMPDIR
+            mkdir -p $out test-build
+            cp -r ${./.}/* test-build/
+            cd test-build
+            chmod -R u+w .
+            chmod +x bin/* sentinels/* tests/*
+            bash tests/run_tests.sh | tee $out/test.log
+          '';
+        }
+      );
+
       homeManagerModules = {
         tmux-glance = import ./nix/home-manager.nix { inherit self; };
         default = self.homeManagerModules.tmux-glance;
