@@ -184,3 +184,17 @@ acquire_lock() {
   - Added background autonomous agent scraping, fzf live previews, and dual-mode toggle.
 * **v1.0 Basic Tmux Bookmarks:**
   - Initial pinned pane bookmarks with fzf switcher.
+
+---
+
+## 8. Future Roadmap & Explorations
+
+* **In-Dashboard Sessionizer (`Ctrl-s` in fzf):**
+  - Integrate session navigation directly into the Glance popup.
+  - List and search all active tmux sessions with live status summaries (displaying the exact badge icons that would appear in `status-right` for each session, e.g. `🚨 1`, `🤖 ⏳ 1`, `👁️ 2`).
+  - Allows 1-keystroke teleportation across entire workspaces without needing a separate sessionizer binding.
+* **Hierarchy Telescoping (`Ctrl-w` / `Ctrl-p`):**
+  - Quick-switch views to search across all open windows (`Ctrl-w`) or all active panes (`Ctrl-p`) across the server, transforming Glance into a universal tmux teleporter.
+* **Jump History & Backtracking (`Ctrl-h`):**
+  - Maintain a jump history stack recording the source pane whenever a user teleports via Glance.
+  - Pressing `Ctrl-h` within the viewer or via shortcut walks backwards through jump history, allowing effortless round-trip navigation back to where you were working.
