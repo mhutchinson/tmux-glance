@@ -397,13 +397,18 @@ list_raw() {
 }
 
 list_bookmarks() {
+    local req_mode="${1:-auto}"
     scan_agents
 
     local mode_file="${TMPDIR:-/tmp}/tmux-bookmark-mode-${UID:-$(id -u)}"
     local initial_mode="attention"
 
-    # Smart fallback: if attention list is empty, open directly in all bots view
-    if [[ ! -s "$bookmarks_file" ]]; then
+    if [[ "$req_mode" == "all" ]]; then
+        initial_mode="all"
+    elif [[ "$req_mode" == "attention" ]]; then
+        initial_mode="attention"
+    elif [[ ! -s "$bookmarks_file" ]]; then
+        # Smart fallback: if attention list is empty, open directly in all bots view
         initial_mode="all"
     fi
     echo "$initial_mode" > "$mode_file"
@@ -464,11 +469,15 @@ case "${1:-list}" in
         shift
         list_raw "${1:-toggle}"
         ;;
+    list-all)
+        list_bookmarks "all"
+        ;;
     list)
-        list_bookmarks
+        shift || true
+        list_bookmarks "${1:-auto}"
         ;;
     *)
-        echo "Usage: $0 {add|remove|is-pinned|scan|on-focus|status|list-raw|list}"
+        echo "Usage: $0 {add|remove|is-pinned|scan|on-focus|status|list-raw|list-all|list}"
         exit 1
         ;;
 esac
