@@ -1,16 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+export LC_ALL="${LC_ALL:-C.UTF-8}"
+export LANG="${LANG:-C.UTF-8}"
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BIN="$(cd "$SCRIPT_DIR/.." && pwd)/bin/tmux-glance"
 
 echo "=== [TEST] Headless Tmux Server & Watch Lifecycle Integration ==="
 
 TEST_ID="$$"
-SOCK="/tmp/glance-test-${TEST_ID}.sock"
-STATE_FILE="/tmp/glance-state-${TEST_ID}.txt"
-
-STATUS_FILE="/tmp/glance-status-${TEST_ID}.txt"
+TMP_BASE="${TMPDIR:-/tmp}"
+SOCK="${TMP_BASE}/glance-test-${TEST_ID}.sock"
+STATE_FILE="${TMP_BASE}/glance-state-${TEST_ID}.txt"
+STATUS_FILE="${TMP_BASE}/glance-status-${TEST_ID}.txt"
 
 cleanup() {
     tmux -S "$SOCK" kill-server 2>/dev/null || true
@@ -21,7 +24,11 @@ trap cleanup EXIT
 # 1. Start isolated headless tmux server
 echo -n "Test 1: Spawning isolated headless tmux server... "
 tmux -S "$SOCK" new-session -d -s test-sess -n win1 "cat"
+tmux -S "$SOCK" set-environment -g PATH "$PATH"
+tmux -S "$SOCK" set-environment -g LC_ALL "${LC_ALL:-C.UTF-8}"
+tmux -S "$SOCK" set-environment -g LANG "${LANG:-C.UTF-8}"
 tmux -S "$SOCK" set-environment -g TMUX_GLANCE_STATE_FILE "$STATE_FILE"
+tmux -S "$SOCK" set-option -g default-shell "$(type -p bash || echo "$SHELL")"
 echo "PASS"
 
 # Helper to read status output
@@ -83,8 +90,20 @@ else
     exit 1
 fi
 
-# 7. Untoggle Vigil
-echo -n "Test 6: Toggle Vigil off releases watch... "
+# 7. Live Preview actively streams pane contents
+echo -n "Test 6: Live preview actively streams pane contents... "
+rm -f "$STATUS_FILE"
+tmux -S "$SOCK" run-shell "$BIN preview $pane1_id > '$STATUS_FILE' 2>&1 & sleep 0.3; kill -TERM \$! 2>/dev/null || true"
+preview_out=$(cat "$STATUS_FILE" 2>/dev/null || true)
+if [[ "$preview_out" =~ "Build completed successfully!" ]]; then
+    echo "PASS"
+else
+    echo "FAIL: Expected 'Build completed successfully!', got '$preview_out'"
+    exit 1
+fi
+
+# 8. Untoggle Vigil
+echo -n "Test 7: Toggle Vigil off releases watch... "
 tmux -S "$SOCK" run-shell "$BIN toggle-vigil"
 status_out=$(get_status)
 if [[ -z "$status_out" ]]; then

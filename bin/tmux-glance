@@ -7,7 +7,9 @@ export LANG="${LANG:-C.UTF-8}"
 
 # Self binary path for internal fzf callbacks
 SELF_BIN="${BASH_SOURCE[0]}"
-if [[ ! -x "$SELF_BIN" ]]; then
+if [[ -f "$SELF_BIN" ]]; then
+    SELF_BIN="$(cd "$(dirname "$SELF_BIN")" && pwd)/$(basename "$SELF_BIN")"
+elif [[ ! -x "$SELF_BIN" ]]; then
     SELF_BIN=$(command -v tmux-glance || echo "$0")
 fi
 
@@ -743,6 +745,32 @@ list_raw() {
     fi
 }
 
+# Actively stream/tail a tmux pane for live fzf preview
+preview_pane() {
+    local pane="${1:-}"
+    if [[ -z "$pane" ]]; then
+        echo "No pane selected"
+        return 0
+    fi
+
+    # Handle graceful exit when fzf terminates preview subshell
+    trap 'exit 0' INT TERM HUP
+
+    while true; do
+        if ! tmux has-session -t "$pane" 2>/dev/null; then
+            printf '\033[2J\033[H'
+            echo "Pane $pane closed or inactive."
+            return 0
+        fi
+
+        printf '\033[2J\033[H'
+        tmux capture-pane -e -p -t "$pane" 2>/dev/null \
+            | awk '{lines[NR]=$0} END {while (NR>0 && lines[NR] ~ /^[[:space:]]*$/) NR--; for (i=1; i<=NR; i++) print lines[i]}' \
+            | tail -n 35
+        sleep 0.5
+    done
+}
+
 # shellcheck disable=SC2016
 list_bookmarks() {
     local req_mode="${1:-auto}"
@@ -780,8 +808,8 @@ list_bookmarks() {
         --border=rounded \
         --info=inline \
         --bind "ctrl-b:reload($SELF_BIN list-raw toggle)" \
-        --preview 'if [[ -n "{2}" ]]; then tmux capture-pane -e -p -t {2} 2>/dev/null | awk '\''{lines[NR]=$0} END {while (NR>0 && lines[NR] ~ /^[[:space:]]*$/) NR--; for (i=1; i<=NR; i++) print lines[i]}'\'' | tail -n 30; else echo "No pane selected"; fi' \
-        --preview-window='down:60%:wrap:follow' \
+        --preview "\"$SELF_BIN\" preview {2}" \
+        --preview-window='down:60%:wrap' \
     )
 
     if [[ -n "$selected" ]]; then
@@ -824,6 +852,10 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
         status)
             with_lock status_summary
             ;;
+        preview)
+            shift
+            preview_pane "${1:-}"
+            ;;
         list-raw)
             shift
             list_raw "${1:-toggle}"
@@ -836,7 +868,7 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
             list_bookmarks "${1:-auto}"
             ;;
         *)
-            echo "Usage: $0 {add|remove|toggle-vigil|is-watched|scan|on-focus|status|list-raw|list-all|list}"
+            echo "Usage: $0 {add|remove|toggle-vigil|is-watched|scan|on-focus|status|preview|list-raw|list-all|list}"
             exit 1
             ;;
     esac

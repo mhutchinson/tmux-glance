@@ -94,6 +94,7 @@ Place a vigil on *any* shell, build, or long-running command.
 * **Intelligent Thought Normalizer:** AI agents animate braille spinners (`[⠋⠙⠹...][⣾⣽⣻⢿]`) and stream thoughts in-place. `tmux-glance` normalizes and filters out transient thought streams, ensuring unread alerts only trigger on real actions or tool completions.
 * **Auto-Acknowledgment on Focus:** No tedious alert dismissal. Simply switching focus into a pane (`pane-focus-in` hook) acknowledges and clears its notification.
 * **Zero Polling Lag & Atomic Locking:** State updates use file locking (`.lock`) with sub-millisecond execution, avoiding status bar micro-stutters or race conditions.
+* **Active Real-Time Tailing:** The interactive viewer actively streams and updates the focused pane's live buffer in real-time, letting you watch agent output, compiler logs, and thinking progress without needing to navigate or reload.
 * **Pluggable Sentinels:** Clean provider interface decouples the core multiplexer from specific agent TUIs.
 
 ---
@@ -347,6 +348,34 @@ set -g @glance_routes 'chat=generic,my-internal-agent=antigravity'
 ## Architecture
 
 For deep dives into data flow, screen fingerprinting, state files, and race condition prevention, refer to [DESIGN.md](DESIGN.md).
+
+---
+
+## Development & Contributing
+
+The repository includes a convenient `Justfile` for local development and CI:
+
+```bash
+# List all recipes
+just
+
+# Run the unit and integration test suite
+just test
+
+# Run Nix flake checks (builds package + runs sandbox tests)
+just check
+
+# Run ShellCheck across all scripts
+just lint
+
+# Run all local CI verification checks (lint, test, check)
+just ci
+
+# Check GitHub Actions, PRs, and Issues
+just actions
+just gh-prs
+just gh-issues
+```
 
 ---
 

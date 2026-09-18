@@ -1,0 +1,4 @@
+result
+result-*
+*.sock
+.DS_Store

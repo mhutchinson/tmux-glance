@@ -22,6 +22,8 @@ jobs:
 
       - name: Magic Nix Cache
         uses: DeterminateSystems/magic-nix-cache-action@v10
+        with:
+          use-flakehub: false
 
       - name: Check Flake & Run Tests
         run: nix flake check
@@ -39,5 +41,5 @@ jobs:
       - name: Run ShellCheck
         uses: ludeeus/action-shellcheck@master
         with:
-          scandir: './bin ./sentinels'
+          scandir: './bin ./sentinels ./tests'
           ignore_paths: './nix'
