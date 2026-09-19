@@ -166,6 +166,12 @@ acquire_lock() {
 }
 ```
 
+### Harpoon Session Slots (`~/.local/state/tmux-glance/slots`)
+To enable instantaneous, 1-chord teleportation across developer projects without hardcoding cryptic session names (like `0`, `J`, `K`, `L`), `tmux-glance` provides a dynamic Harpoon slot engine.
+* **Storage Schema:** Tab-delimited flat file: `<slot>\t<session_name>` (e.g. `j\tnix-home`). Stored under `$XDG_STATE_HOME/tmux-glance/slots`.
+* **Zero Config Drag:** Slots are assigned dynamically without editing Nix or shell environment variables. Survives reboots and works seamlessly with `tmux-resurrect`.
+* **Modal Assignment:** Slots are managed directly inside the Sessionizer (`Ctrl-s`) by pressing `Ctrl-p` on any highlighted session, avoiding global key namespace clutter.
+
 ---
 
 ## 6. Ergonomics & Tiered Keybinding Architecture
@@ -173,7 +179,7 @@ acquire_lock() {
 To respect established tmux environments and prevent keybinding namespace pollution, `tmux-glance` enforces a strict **Two-Tier Keybinding Policy**:
 
 ### Tier 1: Core Non-Contentious Bindings (Enabled by Default)
-Only binds dedicated, non-disruptive keys. Preserves all standard tmux navigation, copy-mode, and window management:
+Only binds dedicated, non-disruptive keys. Preserves all standard tmux navigation, copy-mode, and window management. All complex or mode-specific interactions remain strictly isolated inside the viewfinder popup:
 
 | Keybinding | Scope | Purpose |
 | :--- | :--- | :--- |
@@ -182,6 +188,8 @@ Only binds dedicated, non-disruptive keys. Preserves all standard tmux navigatio
 | `prefix v` | Global | **Vigil Toggle:** Instantly watch/unwatch current pane for output. |
 | `Ctrl-b` | *Popup only* | **Toggle View:** Flip between Attention Hub and Glance Fleet inside fzf. |
 | `Ctrl-s` | *Popup only* | **Sessionizer:** Flip to active tmux sessions with ambient status badges. |
+| `Ctrl-p` | *Popup only (Sessionizer)* | **Pin Slot:** Assign or clear Harpoon session slot (`h/j/k/l`). |
+| `Ctrl-?` / `Ctrl-/` | *Popup only* | **Cheat Sheet:** Display modal-only navigation shortcuts overlay. |
 | `Enter` | *Popup only* | **Jump:** Instantly switch client, window, and pane to target. |
 
 ### Tier 2: Power-User & Direct Navigation (Strictly Opt-In)
@@ -189,20 +197,23 @@ Global navigation chords, jumplist rewinds, and queue cycling can collide with p
 
 | Keybinding | Scope | Feature | Config Option |
 | :--- | :--- | :--- | :--- |
+| `prefix -r C-h/j/k/l` | Global | **Harpoon Session Jump** | `@glance_enable_harpoon 'on'` (`enableHarpoon = true`) |
 | `prefix C-z` / `prefix C-y` | Global | **Jumplist Undo/Redo** (v0.8) | `@glance_enable_jumplist 'on'` |
 | `prefix -r u` / `prefix -r U` | Global | **Repeatable History Walk** (v0.8) | `@glance_enable_jumplist 'on'` |
 | `prefix -r ]` / `prefix -r [` | Global | **Quickfix Alert Cycling** (v0.10) | `@glance_enable_quickfix 'on'` |
 
-*Note: Users who do not opt into Tier 2 bindings still have 100% access to history and navigation features from inside the popup dashboard (`Ctrl-h`, `Ctrl-s`, `Ctrl-w`, etc.) without polluting their global prefix table.*
+*Note: Users who do not opt into Tier 2 bindings still have 100% access to history, sessions, and navigation features from inside the popup dashboard (`Ctrl-h`, `Ctrl-s`, `Ctrl-p`, etc.) without polluting their global prefix table.*
 
 ---
 
 ## 7. Design Evolution Log
 
-* **v0.6 In-Dashboard Sessionizer (`Ctrl-s` in fzf):**
-  - Integrated tmux session navigation directly into the Glance popup.
+* **v0.6 In-Dashboard Sessionizer & Harpoon Slots:**
+  - Integrated tmux session navigation directly into the Glance popup (`Ctrl-s`).
   - Ambient badge aggregation computes per-workspace telemetry (`🚨 1`, `🤖 ⏳ 1`, `👁️ 2`).
-  - 1-keystroke client switching to target session with live viewport preview.
+  - Interactive modal Harpoon slot pinning (`Ctrl-p` in Sessionizer $\rightarrow$ `h/j/k/l`).
+  - In-modal help cheat sheet (`Ctrl-?` / `Ctrl-/`) scoped strictly to viewfinder controls.
+  - Opt-in Tier 2 fast session jumping via `prefix -r C-h/j/k/l` (`jump-slot`).
 * **v3.0 Standalone Project Extraction (`tmux-glance`):**
   - Formalized as standalone flake and TPM package.
   - Pluggable Sentinel architecture introduced with thinking spinner normalizer.

@@ -77,6 +77,8 @@ With one keystroke (`prefix b`), open the **Attention Hub** popup to see only th
 > **Inside the Viewfinder Popup:**
 > * `Ctrl-b` — Toggle instantly between the filtered Attention Hub and full Fleet View.
 > * `Ctrl-s` — Switch to the Sessionizer to search and jump between active tmux sessions with ambient status badges.
+> * `Ctrl-p` — Pin / unpin highlighted session to a Harpoon slot (`h`, `j`, `k`, `l`).
+> * `Ctrl-?` / `Ctrl-/` — Open the in-modal cheat sheet overlay.
 > * `Enter` — Teleport straight into the selected pane or session.
 > * `Esc` — Close the popup without jumping.
 
@@ -262,6 +264,9 @@ programs.tmux-glance = {
     width = "85%";
     height = "75%";
   };
+
+  # Enable Tier 2 Harpoon fast-jump chords (prefix C-h, C-j, C-k, C-l):
+  enableHarpoon = true;
 };
 ```
 
@@ -276,11 +281,23 @@ set -g @glance_vigil_key 'v'
 # Custom popup window dimensions (defaults: 85% / 75%)
 set -g @glance_popup_width '85%'
 set -g @glance_popup_height '75%'
+
+# Enable Tier 2 Harpoon fast-jump chords (prefix C-h, C-j, C-k, C-l):
+set -g @glance_enable_harpoon 'on'
 ```
 
 ---
 
-### 2. Command Routing & Disabling Sentinels
+### 2. Harpoon Session Slots
+Pin your top 4 projects to instant 1-chord shortcuts:
+1. Open the Sessionizer (`prefix g` or `prefix b` then `Ctrl-s`).
+2. Highlight a session and press `Ctrl-p`.
+3. Tap `h`, `j`, `k`, or `l` (or Space/Del to unpin).
+4. Jump straight to it at any time using `prefix C-h`, `prefix C-j`, `prefix C-k`, or `prefix C-l`!
+
+---
+
+### 3. Command Routing & Disabling Sentinels
 
 `tmux-glance` decouples sentinel implementations from command names through an **$O(1)$ Command Routing Table**.
 

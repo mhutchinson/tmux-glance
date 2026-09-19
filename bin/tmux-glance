@@ -20,6 +20,11 @@ if [[ ! -f "$STATE_FILE" && -f "$HOME/.tmux-bookmarks" ]]; then
 fi
 touch "$STATE_FILE"
 
+# Configurable Harpoon slots state file
+SLOTS_FILE="${TMUX_GLANCE_SLOTS_FILE:-${XDG_STATE_HOME:-$HOME/.local/state}/tmux-glance/slots}"
+mkdir -p "$(dirname "$SLOTS_FILE")" 2>/dev/null || true
+touch "$SLOTS_FILE" 2>/dev/null || true
+
 # Discover and source Sentinels
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BASE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -757,7 +762,15 @@ get_all_bots_list() {
 }
 
 get_sessions_list() {
-    declare -A sess_alerts sess_watches sess_waitings sess_runnings sess_dones
+    declare -A sess_alerts sess_watches sess_waitings sess_runnings sess_dones sess_slots
+
+    if [[ -s "$SLOTS_FILE" ]]; then
+        local sl sn
+        while IFS=$'\t' read -r sl sn || [[ -n "$sl" ]]; do
+            [[ -z "$sl" || -z "$sn" ]] && continue
+            sess_slots["$sn"]=$(echo "$sl" | tr '[:lower:]' '[:upper:]')
+        done < "$SLOTS_FILE"
+    fi
 
     local p_id s_name w_idx p_idx p_path p_cmd p_lbl p_k p_st
     if [[ -s "$STATE_FILE" ]]; then
@@ -784,7 +797,7 @@ get_sessions_list() {
     sessions_info=$(tmux list-sessions -F '#{session_name}|#{session_windows}|#{session_attached}|#{pane_current_path}|#{pane_current_command}|#{window_name}' 2>/dev/null || true)
 
     if [[ -z "$sessions_info" ]]; then
-        printf "%s│ %-16s │ %-24s │ %s\t%s\n" "🪟 Empty      " "[0]" "none" "No active tmux sessions found" ""
+        printf "%s│ %-20s │ %-24s │ %s\t%s\n" "🪟 Empty      " "[0]" "none" "No active tmux sessions found" ""
         return 0
     fi
 
@@ -834,12 +847,17 @@ get_sessions_list() {
             fi
         fi
 
-        local display_sess="[$s_name]"
-        if [[ "$s_attached" -gt 0 ]]; then
-            display_sess="[$s_name]*"
+        local slot_badge="   "
+        if [[ -n "${sess_slots[$s_name]:-}" ]]; then
+            slot_badge="[${sess_slots[$s_name]}]"
         fi
-        if [[ ${#display_sess} -gt 16 ]]; then
-            display_sess="${display_sess:0:13}..."
+
+        local display_sess="${slot_badge} [${s_name}]"
+        if [[ "$s_attached" -gt 0 ]]; then
+            display_sess="${slot_badge} [${s_name}]*"
+        fi
+        if [[ ${#display_sess} -gt 20 ]]; then
+            display_sess="${display_sess:0:17}..."
         fi
 
         local repo_name
@@ -855,12 +873,151 @@ get_sessions_list() {
             display_details="${display_details:0:35}..."
         fi
 
-        lines_with_prio+=("$(printf "%d\t%s│ %-16s │ %-24s │ %s\t%s" "$prio" "$badges" "$display_sess" "$repo_name" "$display_details" "$s_name")")
+        lines_with_prio+=("$(printf "%d\t%s│ %-20s │ %-24s │ %s\t%s" "$prio" "$badges" "$display_sess" "$repo_name" "$display_details" "$s_name")")
     done <<< "$sessions_info"
 
     if [[ ${#lines_with_prio[@]} -gt 0 ]]; then
         printf "%s\n" "${lines_with_prio[@]}" | sort -n -k1,1 | cut -f2-
     fi
+}
+
+assign_slot() {
+    local slot="${1:-}" session="${2:-}"
+    if [[ -z "$slot" ]]; then
+        echo "Error: slot identifier required (e.g. h, j, k, l)" >&2
+        return 1
+    fi
+    slot=$(echo "$slot" | tr '[:upper:]' '[:lower:]')
+
+    if [[ -z "$session" ]]; then
+        session=$(tmux display-message -p '#{session_name}' 2>/dev/null || true)
+    fi
+    if [[ -z "$session" ]]; then
+        echo "Error: target session required or active tmux session needed" >&2
+        return 1
+    fi
+
+    local tmp_file="${SLOTS_FILE}.tmp.$$"
+    mkdir -p "$(dirname "$SLOTS_FILE")" 2>/dev/null || true
+
+    if [[ -f "$SLOTS_FILE" ]]; then
+        awk -F'\t' -v s="$slot" -v n="$session" 'tolower($1) != tolower(s) && $2 != n { print $0 }' "$SLOTS_FILE" > "$tmp_file" 2>/dev/null || true
+    fi
+    printf "%s\t%s\n" "$slot" "$session" >> "$tmp_file"
+    mv "$tmp_file" "$SLOTS_FILE"
+
+    local upper_slot
+    upper_slot=$(echo "$slot" | tr '[:lower:]' '[:upper:]')
+    tmux display-message "📌 Pinned [${session}] to slot [${upper_slot}]" 2>/dev/null || true
+}
+
+unassign_slot() {
+    local target="${1:-}"
+    if [[ -z "$target" ]]; then
+        target=$(tmux display-message -p '#{session_name}' 2>/dev/null || true)
+    fi
+    [[ -z "$target" ]] && return 0
+
+    local tmp_file="${SLOTS_FILE}.tmp.$$"
+    if [[ -f "$SLOTS_FILE" ]]; then
+        awk -F'\t' -v t="$target" 'tolower($1) != tolower(t) && $2 != t { print $0 }' "$SLOTS_FILE" > "$tmp_file" 2>/dev/null || true
+        mv "$tmp_file" "$SLOTS_FILE"
+    fi
+    tmux display-message "Unpinned [${target}]" 2>/dev/null || true
+}
+
+jump_slot() {
+    local slot="${1:-}"
+    if [[ -z "$slot" ]]; then
+        echo "Error: slot identifier required (e.g. h, j, k, l)" >&2
+        return 1
+    fi
+    slot=$(echo "$slot" | tr '[:upper:]' '[:lower:]')
+    local upper_slot
+    upper_slot=$(echo "$slot" | tr '[:lower:]' '[:upper:]')
+
+    local target_session=""
+    if [[ -f "$SLOTS_FILE" ]]; then
+        target_session=$(awk -F'\t' -v s="$slot" 'tolower($1) == tolower(s) { print $2; exit }' "$SLOTS_FILE" 2>/dev/null || true)
+    fi
+
+    if [[ -z "$target_session" ]]; then
+        tmux display-message "Slot [${upper_slot}] is unassigned (open Glance -> Ctrl-s -> Ctrl-p to pin)" 2>/dev/null || true
+        return 0
+    fi
+
+    if ! tmux has-session -t "$target_session" 2>/dev/null; then
+        tmux display-message "Slot [${upper_slot}] session [${target_session}] is not running" 2>/dev/null || true
+        return 0
+    fi
+
+    tmux switch-client -t "$target_session" 2>/dev/null || true
+}
+
+pin_interactive() {
+    local target="${1:-}"
+    local target_session=""
+    if [[ -z "$target" ]]; then
+        target_session=$(tmux display-message -p '#{session_name}' 2>/dev/null || true)
+    elif [[ "$target" =~ ^% ]]; then
+        target_session=$(tmux display-message -p -t "$target" '#{session_name}' 2>/dev/null || true)
+    else
+        target_session="$target"
+    fi
+
+    if [[ -z "$target_session" ]]; then
+        return 0
+    fi
+
+    local current_slot=""
+    if [[ -f "$SLOTS_FILE" ]]; then
+        current_slot=$(awk -F'\t' -v s="$target_session" '$2 == s { print toupper($1); exit }' "$SLOTS_FILE" 2>/dev/null || true)
+    fi
+
+    local prompt_msg="📌 Pin [${target_session}] to Harpoon slot (h/j/k/l, Space/Del to unpin, Esc to cancel): "
+    if [[ -n "$current_slot" ]]; then
+        prompt_msg="📌 [${target_session}] currently in [${current_slot}] (h/j/k/l, Space/Del to unpin, Esc to cancel): "
+    fi
+
+    printf "\n\033[1;36m%s\033[0m" "$prompt_msg"
+    local key=""
+    IFS= read -r -s -n 1 key || true
+
+    case "$key" in
+        [hHjJkKlL1-9])
+            assign_slot "$key" "$target_session"
+            ;;
+        ' '|$'\177'|$'\b')
+            unassign_slot "$target_session"
+            ;;
+        *)
+            ;;
+    esac
+}
+
+cheat_sheet() {
+    printf '\033[2J\033[H'
+    cat << 'EOF'
+
+  ┌─────────────────────────────────────────────────────────────┐
+  │                   tmux-glance Viewfinder                    │
+  ├─────────────────────────────────────────────────────────────┤
+  │ View Controls:                                              │
+  │   Ctrl-b       Toggle Attention Hub <-> Fleet View          │
+  │   Ctrl-s       Toggle Sessionizer (Workspaces)              │
+  │                                                             │
+  │ Session Actions:                                            │
+  │   Ctrl-p       Pin / Unpin highlighted session (h/j/k/l)    │
+  │                                                             │
+  │ General:                                                    │
+  │   Enter        Jump to highlighted pane / session           │
+  │   Ctrl-? / /   Toggle this help cheat sheet                 │
+  │   Esc          Close popup / cancel                         │
+  └─────────────────────────────────────────────────────────────┘
+
+  Press any key to return...
+EOF
+    IFS= read -r -s -n 1 _ || true
 }
 
 list_raw() {
@@ -870,7 +1027,9 @@ list_raw() {
     current_mode="${current_mode:-attention}"
 
     local target_mode
-    if [[ "$req_mode" == "toggle" ]]; then
+    if [[ "$req_mode" == "current" ]]; then
+        target_mode="$current_mode"
+    elif [[ "$req_mode" == "toggle" ]]; then
         if [[ "$current_mode" == "attention" ]]; then
             target_mode="all"
         elif [[ "$current_mode" == "all" ]]; then
@@ -973,12 +1132,15 @@ list_bookmarks() {
         --delimiter=$'\t' \
         --with-nth=1 \
         --ansi \
-        --header="👁️ tmux-glance (Ctrl-b: Fleet/Attention | Ctrl-s: Sessions | Enter: jump | Esc: cancel)" \
+        --header="👁️ tmux-glance (Ctrl-s: Sessions | Ctrl-b: View | Ctrl-p: Pin | Ctrl-?: Help | Enter: Jump)" \
         --layout=reverse \
         --border=rounded \
         --info=inline \
         --bind "ctrl-b:reload($SELF_BIN list-raw toggle)" \
         --bind "ctrl-s:reload($SELF_BIN list-raw toggle-sessions)" \
+        --bind "ctrl-p:execute($SELF_BIN pin-interactive {2})+reload($SELF_BIN list-raw current)" \
+        --bind "ctrl-/:execute($SELF_BIN cheat-sheet)" \
+        --bind "ctrl-?:execute($SELF_BIN cheat-sheet)" \
         --preview "\"$SELF_BIN\" preview {2}" \
         --preview-window='down:60%:wrap:follow' \
     )
@@ -1041,12 +1203,31 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
         list-sessions|sessions)
             list_bookmarks "sessions"
             ;;
+        assign-slot)
+            shift
+            assign_slot "${1:-}" "${2:-}"
+            ;;
+        unassign-slot)
+            shift
+            unassign_slot "${1:-}"
+            ;;
+        jump-slot)
+            shift
+            jump_slot "${1:-}"
+            ;;
+        pin-interactive)
+            shift
+            pin_interactive "${1:-}"
+            ;;
+        cheat-sheet|help-modal)
+            cheat_sheet
+            ;;
         list)
             shift || true
             list_bookmarks "${1:-auto}"
             ;;
         *)
-            echo "Usage: $0 {add|remove|toggle-vigil|is-watched|scan|on-focus|status|preview|list-raw|list-all|list-sessions|list}"
+            echo "Usage: $0 {add|remove|toggle-vigil|is-watched|scan|on-focus|status|preview|list-raw|list-all|list-sessions|list|assign-slot|unassign-slot|jump-slot|pin-interactive|cheat-sheet}"
             exit 1
             ;;
     esac

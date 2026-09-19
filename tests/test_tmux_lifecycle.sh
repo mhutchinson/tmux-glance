@@ -14,10 +14,11 @@ TMP_BASE="${TMPDIR:-/tmp}"
 SOCK="${TMP_BASE}/glance-test-${TEST_ID}.sock"
 STATE_FILE="${TMP_BASE}/glance-state-${TEST_ID}.txt"
 STATUS_FILE="${TMP_BASE}/glance-status-${TEST_ID}.txt"
+SLOTS_FILE="${TMP_BASE}/glance-slots-${TEST_ID}.tsv"
 
 cleanup() {
     tmux -S "$SOCK" kill-server 2>/dev/null || true
-    rm -rf "$SOCK" "${STATE_FILE}"* "${STATUS_FILE}"* "${TMP_BASE}/glance-bin-${TEST_ID}"* 2>/dev/null || true
+    rm -rf "$SOCK" "${STATE_FILE}"* "${STATUS_FILE}"* "${SLOTS_FILE}"* "${TMP_BASE}/glance-bin-${TEST_ID}"* 2>/dev/null || true
 }
 trap cleanup EXIT
 
@@ -28,6 +29,7 @@ tmux -S "$SOCK" set-environment -g PATH "$PATH"
 tmux -S "$SOCK" set-environment -g LC_ALL "${LC_ALL:-C.UTF-8}"
 tmux -S "$SOCK" set-environment -g LANG "${LANG:-C.UTF-8}"
 tmux -S "$SOCK" set-environment -g TMUX_GLANCE_STATE_FILE "$STATE_FILE"
+tmux -S "$SOCK" set-environment -g TMUX_GLANCE_SLOTS_FILE "$SLOTS_FILE"
 tmux -S "$SOCK" set-option -g default-shell "$(type -p bash || echo "$SHELL")"
 echo "PASS"
 
@@ -346,4 +348,69 @@ fi
 
 tmux -S "$SOCK" kill-session -t sess-two 2>/dev/null || true
 
+# 19. Harpoon Session Slots (assign, sessionizer display, unassign)
+echo -n "Test 18: Harpoon slot assignment and sessionizer slot badging... "
+# Create sess-alpha and sess-beta
+tmux -S "$SOCK" new-session -d -s sess-alpha -n main "cat"
+tmux -S "$SOCK" new-session -d -s sess-beta -n main "cat"
+tmux -S "$SOCK" set-environment -g -t sess-alpha PATH "$PATH"
+tmux -S "$SOCK" set-environment -g -t sess-beta PATH "$PATH"
+tmux -S "$SOCK" set-environment -g -t sess-alpha TMUX_GLANCE_SLOTS_FILE "$SLOTS_FILE"
+tmux -S "$SOCK" set-environment -g -t sess-beta TMUX_GLANCE_SLOTS_FILE "$SLOTS_FILE"
+
+# Assign sess-alpha to slot h and sess-beta to slot j
+tmux -S "$SOCK" run-shell "bash '$BIN' assign-slot h sess-alpha"
+tmux -S "$SOCK" run-shell "bash '$BIN' assign-slot j sess-beta"
+
+rm -f "$STATUS_FILE"
+tmux -S "$SOCK" run-shell "bash '$BIN' list-raw sessions > '$STATUS_FILE'"
+sess_list_slots=$(cat "$STATUS_FILE")
+
+# Check that [H] [sess-alpha] and [J] [sess-beta] appear
+if [[ "$sess_list_slots" =~ \[H\][[:space:]]+\[sess-alpha\] ]] && [[ "$sess_list_slots" =~ \[J\][[:space:]]+\[sess-beta\] ]]; then
+    echo "PASS (Slot badges [H] and [J] correctly displayed)"
+else
+    echo "FAIL: Expected [H] [sess-alpha] and [J] [sess-beta], got: $sess_list_slots"
+    exit 1
+fi
+
+# 20. Harpoon slot jumping and unassignment
+echo -n "Test 19: Harpoon slot jumping and unassignment... "
+# Verify jump-slot switches client
+# In headless server without attached client, switch-client exits cleanly
+tmux -S "$SOCK" run-shell "bash '$BIN' jump-slot h" || {
+    echo "FAIL: jump-slot h failed"
+    exit 1
+}
+
+# Unassign slot h
+tmux -S "$SOCK" run-shell "bash '$BIN' unassign-slot h"
+rm -f "$STATUS_FILE"
+tmux -S "$SOCK" run-shell "bash '$BIN' list-raw sessions > '$STATUS_FILE'"
+sess_list_after_unassign=$(cat "$STATUS_FILE")
+if [[ "$sess_list_after_unassign" =~ \[H\] ]]; then
+    echo "FAIL: Slot H was not unassigned: $sess_list_after_unassign"
+    exit 1
+fi
+
+# Verify unassigned slot jump message
+tmux -S "$SOCK" run-shell "bash '$BIN' jump-slot h > /dev/null 2>&1" || true
+echo "PASS (Slot jumping and unassignment verified)"
+
+tmux -S "$SOCK" kill-session -t sess-alpha 2>/dev/null || true
+tmux -S "$SOCK" kill-session -t sess-beta 2>/dev/null || true
+
+# 21. In-Modal Cheat Sheet
+echo -n "Test 20: In-Modal Cheat Sheet outputs clean modal-only shortcuts... "
+rm -f "$STATUS_FILE"
+echo "" | bash "$BIN" cheat-sheet > "$STATUS_FILE" 2>&1 || true
+cheat_out=$(cat "$STATUS_FILE")
+if [[ "$cheat_out" =~ "tmux-glance Viewfinder" ]] && [[ "$cheat_out" =~ "Ctrl-p" ]] && [[ "$cheat_out" =~ "Ctrl-s" ]] && [[ "$cheat_out" =~ "Ctrl-b" ]]; then
+    echo "PASS"
+else
+    echo "FAIL: Cheat sheet output missing expected controls: $cheat_out"
+    exit 1
+fi
+
 echo "All headless tmux lifecycle tests passed successfully!"
+

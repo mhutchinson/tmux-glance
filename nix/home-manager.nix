@@ -60,6 +60,12 @@ in {
       default = { };
       description = "Command-to-sentinel routing overrides (e.g. { chat = \"generic\"; my-bot = \"antigravity\"; }).";
     };
+
+    enableHarpoon = mkOption {
+      type = types.bool;
+      default = false;
+      description = "Enable Tier 2 Harpoon fast-jump keybindings (prefix C-h, C-j, C-k, C-l).";
+    };
   };
 
   config = mkIf cfg.enable {
@@ -80,6 +86,12 @@ in {
       bind-key ${cfg.keybindings.vigil} run-shell "${cfg.package}/bin/tmux-glance toggle-vigil"
 
       set-hook -g pane-focus-in "run-shell '${cfg.package}/bin/tmux-glance on-focus #{pane_id}'"
+      ${optionalString cfg.enableHarpoon ''
+        bind-key -r C-h run-shell "${cfg.package}/bin/tmux-glance jump-slot h"
+        bind-key -r C-j run-shell "${cfg.package}/bin/tmux-glance jump-slot j"
+        bind-key -r C-k run-shell "${cfg.package}/bin/tmux-glance jump-slot k"
+        bind-key -r C-l run-shell "${cfg.package}/bin/tmux-glance jump-slot l"
+      ''}
     '';
   };
 }
