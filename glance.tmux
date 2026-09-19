@@ -25,7 +25,7 @@ popup_width="${popup_width:-85%}"
 popup_height="$(tmux show-option -gqv @glance_popup_height)"
 popup_height="${popup_height:-75%}"
 
-# Bind Glance Fleet view (prefix + g)
+# Bind All Panes (Go-To Teleport) view (prefix + g)
 tmux bind-key "$glance_key" display-popup -E -w "$popup_width" -h "$popup_height" "$GLANCE_BIN list-all"
 
 # Bind Attention Hub (prefix + b)

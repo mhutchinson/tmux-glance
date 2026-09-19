@@ -23,9 +23,10 @@
 `tmux-glance` turns tmux into an ambient heads-up display for changes in background terminals, such as long-running builds, test suites, and autonomous AI agents:
 
 - 🔮 **Crystal Ball Peering (`prefix b` / `prefix g`):** Pop open a floating viewfinder to peer into any pane across any session on your tmux server. Watch compiler output, log streams, or agent progress in real-time ANSI preview without leaving your current workspace.
-- ⚡ **Instant Teleportation (`Enter`):** When something needs your hands, hit `Enter` in the viewfinder to teleport straight into that session, window, and pane.
+- ⚡ **Universal Go-To & Instant Teleportation (`prefix g` + `Enter`):** Type any directory name, repository, or command to fuzzy-match across all panes in every session and window, preview live output, and jump straight there.
 - 👁️ **Glanceable Status Bar Icons:** Ambient indicators (`🚨 1`, `👁️ 2`, `🤖 ⏳ 1`, `🤖 ⚡ 2`) sit quietly in your status bar. If it's quiet, you stay in flow; if a build fails or an agent is blocked waiting for you, you know immediately.
-- 🎯 **One-Key Vigil Watches (`prefix v`):** Slap a sentinel on _any_ shell command or long compile. Switch away, and your status bar will flash `🚨 1` the exact moment new output appears.
+- 🤖 **Automatic Agent Monitoring (Zero Setup):** You don't need to remember to watch your AI coding assistants. `tmux-glance` automatically discovers background agent sessions (such as Antigravity, Claude Code, and Aider) across all windows and sessions, categorizing their live states (`🤖 ⚡ running`, `🤖 ⏳ waiting for input`, `🤖 ✓ finished`) while intelligently normalizing animated braille spinners and streaming thoughts.
+- 🎯 **One-Key Vigil Watches (`prefix v`):** For everything else—long builds (`cargo build`, `nix build`), database migrations, or test suites—slap a watchful sentinel on any pane with `prefix v`. Switch away, and your status bar will flash `🚨 1` the exact moment new output appears or the process exits. Merely focusing the pane auto-acknowledges the alert.
   - _Want custom trigger logic or noise filtering for a specific application?_ Write your own [**Sentinel plugin**](#pluggable-sentinels) in a few lines of bash! Sentinels can classify custom states (`waiting`, `running`, `idle`) and normalize spinners or streaming thought lines so you only get alerted when it truly matters.
 
 ---
@@ -71,11 +72,11 @@ With one keystroke (`prefix b`), open the **Attention Hub** popup to see only th
 | Key | Action | Description |
 | :--- | :--- | :--- |
 | `prefix b` | **Attention Hub** | Floating viewfinder filtered strictly to tasks that need you (`🚨 Alert`, `🤖 ⏳ Waiting`). |
-| `prefix g` | **Fleet View** | Server-wide dashboard showing all active agents and watched processes. |
+| `prefix g` | **All Panes (Go-To)** | Fuzzy search across all panes in every session and window. Type any directory, repo, or command to preview and jump straight there. |
 | `prefix v` | **Toggle Vigil** | Slap a watchful sentinel on the current pane (or release it). |
 
 > **Inside the Viewfinder Popup:**
-> * `Ctrl-b` — Toggle instantly between the filtered Attention Hub and full Fleet View.
+> * `Ctrl-b` — Toggle instantly between the Attention Hub and All Panes (Go-To).
 > * `Ctrl-s` — Switch to the Sessionizer to search and jump between active tmux sessions with ambient status badges.
 > * `Ctrl-p` — Pin / unpin highlighted session to a Harpoon slot (`h`, `j`, `k`, `l`). *(Note: badge renders on next cursor movement `Up`/`Down`)*.
 > * `Ctrl-/` / `F1` — Open the in-modal cheat sheet overlay.
@@ -86,6 +87,7 @@ With one keystroke (`prefix b`), open the **Attention Hub** popup to see only th
 
 ## Key Features
 
+- **Universal Go-To Directory Teleporter (`prefix g`):** `prefix g` isn't just an agent dashboard—it's the fastest teleporter across your entire tmux server. Every pane is indexed by its active directory, repository name, session, window, and foreground process. Press `prefix g`, type a project or directory name (e.g. `nix-home`, `tmux-glance`, `backend`), preview its live state in the viewfinder, and press `Enter` to switch client, window, and pane in a single stroke.
 - **Intelligent Thought Normalizer:** AI agents animate braille spinners (`[⠋⠙⠹...][⣾⣽⣻⢿]`) and stream thoughts in-place. `tmux-glance` normalizes and filters out transient thought streams, ensuring unread alerts only trigger on real actions or tool completions.
 - **Auto-Acknowledgment on Focus:** No tedious alert dismissal. Simply switching focus into a pane (`pane-focus-in` hook) acknowledges and clears its notification.
 - **Zero Polling Lag & Atomic Locking:** State updates use file locking (`.lock`) with sub-millisecond execution, avoiding status bar micro-stutters or race conditions.
@@ -193,7 +195,7 @@ set -g status-right '#(tmux-glance status) %H:%M '
    _(Outputs nothing if all background panes are quiet, or formatted badges if agents are active)._
 
 2. **Test Keybindings:**
-   - Press `prefix + g`: The **Glance Fleet View** popup should appear.
+   - Press `prefix + g`: The **All Panes (Go-To)** popup should appear.
    - Press `prefix + b`: The **Attention Hub** popup should appear.
    - Press `prefix + v`: You should see a status message: `👁️ Vigil active: ...` (press again to release).
 
@@ -254,7 +256,7 @@ programs.tmux-glance = {
 
   # Custom keybindings (defaults: g, b, v)
   keybindings = {
-    glance = "g"; # prefix + g: Server-wide Fleet View
+    glance = "g"; # prefix + g: All Panes (Go-To Teleport)
     hub = "b";    # prefix + b: Attention Hub
     vigil = "v";  # prefix + v: Toggle Vigil on current pane
   };

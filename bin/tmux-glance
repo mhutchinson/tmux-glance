@@ -619,7 +619,7 @@ status_summary() {
 
 get_attention_list() {
     if [[ ! -s "$STATE_FILE" ]] || ! grep -q '[^[:space:]]' "$STATE_FILE" 2>/dev/null; then
-        printf "%s│ %-16s │ %-24s │ %s\t%s\n" "👁️ Empty      " "[0:0.0]" "none" "No active vigils or agent alerts (Ctrl-b for fleet view)" ""
+        printf "%s│ %-16s │ %-24s │ %s\t%s\n" "👁️ Empty      " "[0:0.0]" "none" "No active vigils or agent alerts (Ctrl-b for all panes)" ""
         return 0
     fi
 
@@ -1003,7 +1003,7 @@ cheat_sheet() {
   │                   tmux-glance Viewfinder                    │
   ├─────────────────────────────────────────────────────────────┤
   │ View Controls:                                              │
-  │   Ctrl-b       Toggle Attention Hub <-> Fleet View          │
+  │   Ctrl-b       Toggle Attention Hub <-> All Panes (Go-To)   │
   │   Ctrl-s       Toggle Sessionizer (Workspaces)              │
   │                                                             │
   │ Session Actions:                                            │

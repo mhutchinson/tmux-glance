@@ -10,7 +10,7 @@
 
 As terminal workflows transition from synchronous shell commands to autonomous, long-running processes—such as background AI coding agents (Antigravity, Claude Code, Aider), compilation pipelines (`cargo build`, `nix build`), remote database syncs, and test suites—developers suffer from chronic **speculative window hopping**: cycling through tmux windows and panes simply to inspect whether a process has completed, failed, or blocked waiting for user input.
 
-`tmux-glance` eliminates speculative hopping by establishing an **ambient status-right telemetry protocol**, an on-demand **Attention Hub** (`prefix b`), a server-wide **Glance Fleet View** (`prefix g`), and instant single-pane **Vigil watches** (`prefix v`).
+`tmux-glance` eliminates speculative hopping by establishing an **ambient status-right telemetry protocol**, an on-demand **Attention Hub** (`prefix b`), a server-wide **All Panes Go-To teleporter** (`prefix g`), and instant single-pane **Vigil watches** (`prefix v`).
 
 ---
 
@@ -55,7 +55,7 @@ flowchart TD
     subgraph Presentation & UI
         Status["Tmux status-right\n'🚨 1  👁️ 1  🤖 ⏳ 1'"]
         Hub["Attention Hub (prefix b)\nUrgent tasks sorted by priority"]
-        Fleet["Glance Fleet (prefix g)\nAll server agents & vigils"]
+        Fleet["All Panes (prefix g)\nCross-session directory & pane teleporter"]
         Preview["fzf ANSI Live Preview\n(tail -n 30 of active pane)"]
     end
 
@@ -183,10 +183,10 @@ Only binds dedicated, non-disruptive keys. Preserves all standard tmux navigatio
 
 | Keybinding | Scope | Purpose |
 | :--- | :--- | :--- |
-| `prefix g` | Global | **Glance Mode:** Server-wide Fleet View of all running agents and vigils. |
+| `prefix g` | Global | **All Panes (Go-To):** Search across all panes in every session and window to preview and jump straight there. |
 | `prefix b` | Global | **Attention Hub:** Urgent queue (waiting prompts, completed runs, alerts). |
 | `prefix v` | Global | **Vigil Toggle:** Instantly watch/unwatch current pane for output. |
-| `Ctrl-b` | *Popup only* | **Toggle View:** Flip between Attention Hub and Glance Fleet inside fzf. |
+| `Ctrl-b` | *Popup only* | **Toggle View:** Flip between Attention Hub and All Panes inside fzf. |
 | `Ctrl-s` | *Popup only* | **Sessionizer:** Flip to active tmux sessions with ambient status badges. |
 | `Ctrl-p` | *Popup only (Sessionizer)* | **Pin Slot:** Assign or clear Harpoon session slot (`h/j/k/l`). |
 | `Ctrl-/` / `F1` | *Popup only* | **Cheat Sheet:** Display modal-only navigation shortcuts overlay. |
@@ -250,7 +250,7 @@ Global navigation chords, jumplist rewinds, and queue cycling can collide with p
 * **Global Agent Quotas & Saturation Gauges (`sentinel_<name>_gauge`):**
   - Allow sentinels to optionally contribute a single, global capacity or quota gauge (e.g. LLM API token quota, hourly request limits, or harness saturation).
   - **Threshold Visibility Rule:** Quota gauges only appear in `status-right` when depleted below **20%** (e.g. `#[fg=#fab387]🪫 18%#[default]`, escalating to `#[fg=#f38ba8,bold]⚠️ 4%#[default]`). When >20%, `status-right` remains completely quiet and uncluttered.
-  - **Always Visible in Dashboard:** The Glance Fleet View (`prefix g` / `prefix b`) always displays the gauge in the header/telemetry bar regardless of level so developers can check capacity at any time.
+  - **Always Visible in Dashboard:** The Glance Viewfinder (`prefix g` / `prefix b`) always displays the gauge in the header/telemetry bar regardless of level so developers can check capacity at any time.
   - **Strictly Global (No Per-Pane Churn):** Limit of 1 global gauge per harness. Progress bars or multi-terminal metrics are disallowed in this slot to prevent status bar churn and visual clutter.
   - **Asynchronous Local Cache Invariant:** Gauges must **never** make synchronous HTTP or CLI queries inside `status-right` polling (must read a local cache file written out-of-band by a daemon, hook, or background task to preserve the <50ms status budget). Pilot with `sentinel_antigravity` first.
 * **Quickfix Attention Cycling & Queue HUD (`prefix -r ]` / `prefix -r [`):**

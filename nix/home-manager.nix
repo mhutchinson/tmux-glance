@@ -19,7 +19,7 @@ in {
       glance = mkOption {
         type = types.str;
         default = "g";
-        description = "Key to open Glance Mode (server-wide fleet view).";
+        description = "Key to open Glance Mode (all panes cross-session teleporter).";
       };
 
       hub = mkOption {
