@@ -181,6 +181,7 @@ Only binds dedicated, non-disruptive keys. Preserves all standard tmux navigatio
 | `prefix b` | Global | **Attention Hub:** Urgent queue (waiting prompts, completed runs, alerts). |
 | `prefix v` | Global | **Vigil Toggle:** Instantly watch/unwatch current pane for output. |
 | `Ctrl-b` | *Popup only* | **Toggle View:** Flip between Attention Hub and Glance Fleet inside fzf. |
+| `Ctrl-s` | *Popup only* | **Sessionizer:** Flip to active tmux sessions with ambient status badges. |
 | `Enter` | *Popup only* | **Jump:** Instantly switch client, window, and pane to target. |
 
 ### Tier 2: Power-User & Direct Navigation (Strictly Opt-In)
@@ -198,6 +199,10 @@ Global navigation chords, jumplist rewinds, and queue cycling can collide with p
 
 ## 7. Design Evolution Log
 
+* **v0.6 In-Dashboard Sessionizer (`Ctrl-s` in fzf):**
+  - Integrated tmux session navigation directly into the Glance popup.
+  - Ambient badge aggregation computes per-workspace telemetry (`🚨 1`, `🤖 ⏳ 1`, `👁️ 2`).
+  - 1-keystroke client switching to target session with live viewport preview.
 * **v3.0 Standalone Project Extraction (`tmux-glance`):**
   - Formalized as standalone flake and TPM package.
   - Pluggable Sentinel architecture introduced with thinking spinner normalizer.
@@ -213,10 +218,6 @@ Global navigation chords, jumplist rewinds, and queue cycling can collide with p
 
 ## 8. Future Roadmap & Explorations
 
-* **In-Dashboard Sessionizer (`Ctrl-s` in fzf):**
-  - Integrate session navigation directly into the Glance popup.
-  - List and search all active tmux sessions with live status summaries (displaying the exact badge icons that would appear in `status-right` for each session, e.g. `🚨 1`, `🤖 ⏳ 1`, `👁️ 2`).
-  - Allows 1-keystroke teleportation across entire workspaces without needing a separate sessionizer binding.
 * **Hierarchy Telescoping (`Ctrl-w` / `Ctrl-p`):**
   - Quick-switch views to search across all open windows (`Ctrl-w`) or all active panes (`Ctrl-p`) across the server, transforming Glance into a universal tmux teleporter.
 * **Jump History & Backtracking Jumplist (`Ctrl-h` / Undo-Redo):**

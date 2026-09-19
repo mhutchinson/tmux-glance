@@ -277,4 +277,73 @@ else
     exit 1
 fi
 
+# 16. In-Dashboard Sessionizer per-workspace ambient status badge aggregation
+echo -n "Test 15: Sessionizer aggregates ambient status badges per workspace... "
+# Create a second session: sess-two
+tmux -S "$SOCK" new-session -d -s sess-two -n main "cat"
+tmux -S "$SOCK" set-environment -g -t sess-two PATH "$PATH"
+tmux -S "$SOCK" set-environment -g -t sess-two TMUX_GLANCE_STATE_FILE "$STATE_FILE"
+
+# Seed state file with:
+# 1. Alert in test-sess
+pane_sess1=$(tmux -S "$SOCK" list-panes -t test-sess -F '#{pane_id}' | head -n 1)
+printf "%s\ttest-sess\t1\t0\t/tmp\tcat\twatch in tmp\tmanual\talert\n" "$pane_sess1" >> "$STATE_FILE"
+
+# 2. Waiting agent in sess-two
+pane_sess2=$(tmux -S "$SOCK" list-panes -t sess-two -F '#{pane_id}' | head -n 1)
+printf "%s\tsess-two\t1\t0\t/tmp/myrepo\tagy\twaiting in myrepo\tauto\twaiting\n" "$pane_sess2" >> "$STATE_FILE"
+
+# Run list-raw sessions
+rm -f "$STATUS_FILE"
+tmux -S "$SOCK" run-shell "bash '$BIN' list-raw sessions > '$STATUS_FILE'"
+sess_list=$(cat "$STATUS_FILE")
+
+# Verify that test-sess has 🚨 1 and sess-two has 🤖 ⏳ 1
+if [[ "$sess_list" =~ 🚨[[:space:]]+1.*\[test-sess\] ]] && [[ "$sess_list" =~ 🤖[[:space:]]+⏳[[:space:]]+1.*\[sess-two\] ]]; then
+    # Verify priority: test-sess (alert prio 1) must precede sess-two (waiting prio 2)
+    pos_sess1=$(echo "$sess_list" | grep -n '\[test-sess\]' | cut -d: -f1)
+    pos_sess2=$(echo "$sess_list" | grep -n '\[sess-two\]' | cut -d: -f1)
+    if [[ "$pos_sess1" -lt "$pos_sess2" ]]; then
+        echo "PASS (Alert workspace precedes waiting workspace with ambient badges)"
+    else
+        echo "FAIL: Priority ordering incorrect: sess1 pos $pos_sess1, sess2 pos $pos_sess2"
+        exit 1
+    fi
+else
+    echo "FAIL: Missing ambient status badges in sessions list: $sess_list"
+    exit 1
+fi
+
+# 17. Sessionizer mode toggling
+echo -n "Test 16: Sessionizer mode toggling (Ctrl-s flip back and forth)... "
+tmux -S "$SOCK" set-option -g @glance_mode "attention"
+tmux -S "$SOCK" run-shell "bash '$BIN' list-raw toggle-sessions > /dev/null"
+mode_after_first=$(tmux -S "$SOCK" show-option -gv @glance_mode)
+if [[ "$mode_after_first" != "sessions" ]]; then
+    echo "FAIL: Expected mode 'sessions', got '$mode_after_first'"
+    exit 1
+fi
+tmux -S "$SOCK" run-shell "bash '$BIN' list-raw toggle-sessions > /dev/null"
+mode_after_second=$(tmux -S "$SOCK" show-option -gv @glance_mode)
+if [[ "$mode_after_second" != "attention" ]]; then
+    echo "FAIL: Expected restored mode 'attention', got '$mode_after_second'"
+    exit 1
+fi
+echo "PASS (Mode flips attention -> sessions -> attention)"
+
+# 18. Live preview streams active pane of target session
+echo -n "Test 17: Live preview actively streams target session active pane... "
+tmux -S "$SOCK" send-keys -t "$pane_sess2" "Hello from sess-two workspace!" C-m
+rm -f "$STATUS_FILE"
+tmux -S "$SOCK" run-shell "bash '$BIN' preview sess-two > '$STATUS_FILE' 2>&1 & sleep 0.3; kill -TERM \$! 2>/dev/null || true"
+preview_sess_out=$(cat "$STATUS_FILE" 2>/dev/null || true)
+if [[ "$preview_sess_out" =~ "Hello from sess-two workspace!" ]]; then
+    echo "PASS"
+else
+    echo "FAIL: Expected session preview to capture active pane, got '$preview_sess_out'"
+    exit 1
+fi
+
+tmux -S "$SOCK" kill-session -t sess-two 2>/dev/null || true
+
 echo "All headless tmux lifecycle tests passed successfully!"

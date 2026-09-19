@@ -756,6 +756,113 @@ get_all_bots_list() {
     fi
 }
 
+get_sessions_list() {
+    declare -A sess_alerts sess_watches sess_waitings sess_runnings sess_dones
+
+    local p_id s_name w_idx p_idx p_path p_cmd p_lbl p_k p_st
+    if [[ -s "$STATE_FILE" ]]; then
+        while IFS=$'\t' read -r p_id s_name w_idx p_idx p_path p_cmd p_lbl p_k p_st || [[ -n "$p_id" ]]; do
+            [[ -z "$p_id" || -z "$s_name" ]] && continue
+            p_k="${p_k:-manual}"
+            p_st="${p_st:-watching}"
+            if [[ "$p_k" == "manual" ]]; then
+                case "$p_st" in
+                    alert) sess_alerts["$s_name"]=$(( ${sess_alerts["$s_name"]:-0} + 1 )) ;;
+                    *)     sess_watches["$s_name"]=$(( ${sess_watches["$s_name"]:-0} + 1 )) ;;
+                esac
+            elif [[ "$p_k" == "auto" ]]; then
+                case "$p_st" in
+                    waiting) sess_waitings["$s_name"]=$(( ${sess_waitings["$s_name"]:-0} + 1 )) ;;
+                    running) sess_runnings["$s_name"]=$(( ${sess_runnings["$s_name"]:-0} + 1 )) ;;
+                    done)    sess_dones["$s_name"]=$(( ${sess_dones["$s_name"]:-0} + 1 )) ;;
+                esac
+            fi
+        done < "$STATE_FILE"
+    fi
+
+    local sessions_info
+    sessions_info=$(tmux list-sessions -F '#{session_name}|#{session_windows}|#{session_attached}|#{pane_current_path}|#{pane_current_command}|#{window_name}' 2>/dev/null || true)
+
+    if [[ -z "$sessions_info" ]]; then
+        printf "%s│ %-16s │ %-24s │ %s\t%s\n" "🪟 Empty      " "[0]" "none" "No active tmux sessions found" ""
+        return 0
+    fi
+
+    local lines_with_prio=()
+    while IFS='|' read -r s_name s_wins s_attached s_path s_cmd s_win_name; do
+        [[ -z "$s_name" ]] && continue
+
+        local a_cnt="${sess_alerts[$s_name]:-0}"
+        local wt_cnt="${sess_waitings[$s_name]:-0}"
+        local d_cnt="${sess_dones[$s_name]:-0}"
+        local r_cnt="${sess_runnings[$s_name]:-0}"
+        local w_cnt="${sess_watches[$s_name]:-0}"
+
+        local badges=""
+        local prio=6
+
+        if [[ $a_cnt -gt 0 ]]; then
+            badges="${badges}🚨 ${a_cnt} "
+            prio=1
+        fi
+        if [[ $wt_cnt -gt 0 ]]; then
+            badges="${badges}🤖 ⏳ ${wt_cnt} "
+            if [[ $prio -gt 2 ]]; then prio=2; fi
+        fi
+        if [[ $d_cnt -gt 0 ]]; then
+            badges="${badges}🤖 ✓ ${d_cnt} "
+            if [[ $prio -gt 3 ]]; then prio=3; fi
+        fi
+        if [[ $r_cnt -gt 0 ]]; then
+            badges="${badges}🤖 ⚡ ${r_cnt} "
+            if [[ $prio -gt 4 ]]; then prio=4; fi
+        fi
+        if [[ $w_cnt -gt 0 ]]; then
+            badges="${badges}👁️ ${w_cnt} "
+            if [[ $prio -gt 5 ]]; then prio=5; fi
+        fi
+
+        if [[ -z "$badges" ]]; then
+            badges="🌱 Clean      "
+        else
+            badges="${badges% }"
+            local emojis="${badges//[^🚨🤖⏳🌱]/}"
+            local visual_width=$(( ${#badges} + ${#emojis} ))
+            local pad=$(( 14 - visual_width ))
+            if [[ $pad -gt 0 ]]; then
+                badges=$(printf "%s%*s" "$badges" "$pad" "")
+            fi
+        fi
+
+        local display_sess="[$s_name]"
+        if [[ "$s_attached" -gt 0 ]]; then
+            display_sess="[$s_name]*"
+        fi
+        if [[ ${#display_sess} -gt 16 ]]; then
+            display_sess="${display_sess:0:13}..."
+        fi
+
+        local repo_name
+        repo_name=$(basename "$s_path")
+        if [[ ${#repo_name} -gt 24 ]]; then
+            repo_name="${repo_name:0:21}..."
+        fi
+
+        local win_noun="windows"
+        [[ "$s_wins" -eq 1 ]] && win_noun="window"
+        local display_details="${s_wins} ${win_noun} (active: ${s_cmd:-zsh} in ${s_win_name:-win})"
+        if [[ ${#display_details} -gt 38 ]]; then
+            display_details="${display_details:0:35}..."
+        fi
+
+        lines_with_prio+=("$(printf "%d\t%s│ %-16s │ %-24s │ %s\t%s" "$prio" "$badges" "$display_sess" "$repo_name" "$display_details" "$s_name")")
+    done <<< "$sessions_info"
+
+    if [[ ${#lines_with_prio[@]} -gt 0 ]]; then
+        printf "%s\n" "${lines_with_prio[@]}" | sort -n -k1,1 | cut -f2-
+    fi
+}
+
 list_raw() {
     local req_mode="${1:-toggle}"
     local current_mode
@@ -766,8 +873,20 @@ list_raw() {
     if [[ "$req_mode" == "toggle" ]]; then
         if [[ "$current_mode" == "attention" ]]; then
             target_mode="all"
+        elif [[ "$current_mode" == "all" ]]; then
+            target_mode="attention"
         else
             target_mode="attention"
+        fi
+    elif [[ "$req_mode" == "toggle-sessions" || "$req_mode" == "sessions-toggle" ]]; then
+        if [[ "$current_mode" == "sessions" ]]; then
+            local prev_mode
+            prev_mode=$(tmux show-option -gv @glance_prev_mode 2>/dev/null || true)
+            target_mode="${prev_mode:-attention}"
+            [[ "$target_mode" == "sessions" ]] && target_mode="attention"
+        else
+            tmux set-option -g @glance_prev_mode "$current_mode" 2>/dev/null || true
+            target_mode="sessions"
         fi
     else
         target_mode="$req_mode"
@@ -777,16 +896,18 @@ list_raw() {
 
     if [[ "$target_mode" == "all" ]]; then
         get_all_bots_list
+    elif [[ "$target_mode" == "sessions" ]]; then
+        get_sessions_list
     else
         get_attention_list
     fi
 }
 
-# Actively stream/tail a tmux pane for live fzf preview
+# Actively stream/tail a tmux pane or session for live fzf preview
 preview_pane() {
-    local pane="${1:-}"
-    if [[ -z "$pane" ]]; then
-        echo "No pane selected"
+    local target="${1:-}"
+    if [[ -z "$target" ]]; then
+        echo "No target selected"
         return 0
     fi
 
@@ -795,14 +916,14 @@ preview_pane() {
 
     local prev_hash=""
     while true; do
-        if ! tmux has-session -t "$pane" 2>/dev/null; then
+        if ! tmux has-session -t "$target" 2>/dev/null; then
             printf '\033[2J\033[H'
-            echo "Pane $pane closed or inactive."
+            echo "Target $target closed or inactive."
             return 0
         fi
 
         local content
-        content=$(tmux capture-pane -e -p -t "$pane" 2>/dev/null \
+        content=$(tmux capture-pane -e -p -t "$target" 2>/dev/null \
             | awk '{lines[NR]=$0} END {while (NR>0 && lines[NR] ~ /^[[:space:]]*$/) NR--; for (i=1; i<=NR; i++) print lines[i]}' \
             | tail -n 35)
 
@@ -827,6 +948,8 @@ list_bookmarks() {
 
     if [[ "$req_mode" == "all" ]]; then
         initial_mode="all"
+    elif [[ "$req_mode" == "sessions" ]]; then
+        initial_mode="sessions"
     elif [[ "$req_mode" == "attention" ]]; then
         initial_mode="attention"
     elif [[ ! -s "$STATE_FILE" ]] || ! grep -q '[^[:space:]]' "$STATE_FILE" 2>/dev/null; then
@@ -850,25 +973,30 @@ list_bookmarks() {
         --delimiter=$'\t' \
         --with-nth=1 \
         --ansi \
-        --header="👁️ tmux-glance (Ctrl-b: toggle Fleet / Attention | Enter: jump | Esc: cancel)" \
+        --header="👁️ tmux-glance (Ctrl-b: Fleet/Attention | Ctrl-s: Sessions | Enter: jump | Esc: cancel)" \
         --layout=reverse \
         --border=rounded \
         --info=inline \
         --bind "ctrl-b:reload($SELF_BIN list-raw toggle)" \
+        --bind "ctrl-s:reload($SELF_BIN list-raw toggle-sessions)" \
         --preview "\"$SELF_BIN\" preview {2}" \
         --preview-window='down:60%:wrap:follow' \
     )
 
     if [[ -n "$selected" ]]; then
-        local target_pane_id
-        target_pane_id=$(echo "$selected" | cut -f2)
-        if [[ -n "$target_pane_id" ]] && tmux has-session -t "$target_pane_id" 2>/dev/null; then
-            tmux select-pane -t "$target_pane_id"
-            tmux select-window -t "$target_pane_id"
-            tmux switch-client -t "$target_pane_id"
-            on_focus "$target_pane_id"
-        elif [[ -n "$target_pane_id" ]]; then
-            tmux display-message "Target pane no longer exists."
+        local target
+        target=$(echo "$selected" | cut -f2)
+        if [[ -n "$target" ]] && tmux has-session -t "$target" 2>/dev/null; then
+            if [[ "$target" =~ ^% ]]; then
+                tmux select-pane -t "$target"
+                tmux select-window -t "$target"
+                tmux switch-client -t "$target"
+                on_focus "$target"
+            else
+                tmux switch-client -t "$target"
+            fi
+        elif [[ -n "$target" ]]; then
+            tmux display-message "Target pane or session no longer exists."
         fi
     fi
 }
@@ -910,12 +1038,15 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
         list-all)
             list_bookmarks "all"
             ;;
+        list-sessions|sessions)
+            list_bookmarks "sessions"
+            ;;
         list)
             shift || true
             list_bookmarks "${1:-auto}"
             ;;
         *)
-            echo "Usage: $0 {add|remove|toggle-vigil|is-watched|scan|on-focus|status|preview|list-raw|list-all|list}"
+            echo "Usage: $0 {add|remove|toggle-vigil|is-watched|scan|on-focus|status|preview|list-raw|list-all|list-sessions|list}"
             exit 1
             ;;
     esac
