@@ -9,6 +9,13 @@
   <em>Stop speculative window hopping. Stay in flow.</em>
 </p>
 
+<p align="center">
+  <img src="assets/demo.gif" alt="tmux-glance in action: crystal-ball peering and instant teleportation" width="760" />
+</p>
+<p align="center">
+  <sub><em>💡 <strong>In Action:</strong> Status bar alerts trigger while in flow (<code>main.go</code>) → <code>prefix b</code> opens the Attention Hub viewfinder with live ANSI preview → <code>Enter</code> teleports into the agent prompt to approve.<br>(Note: The bottom <code>💡 DEMO</code> subtitle bar illustrates keypresses and narration for this demo; <code>tmux-glance</code> itself lives ambiently in your status bar).</em></sub>
+</p>
+
 ---
 
 ## What is tmux-glance?

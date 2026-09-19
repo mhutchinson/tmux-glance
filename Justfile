@@ -38,3 +38,8 @@ gh-issues:
 # View latest GitHub Actions runs
 actions:
     gh run list
+
+# Record the animated demo GIF using VHS
+record-demo:
+    vhs scripts/demo.tape
+
