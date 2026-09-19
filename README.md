@@ -343,13 +343,24 @@ For deep dives into data flow, screen fingerprinting, state files, and race cond
 
 ## Development & Contributing
 
-The repository includes a convenient `Justfile` for local development and CI:
+The repository includes a convenient `Justfile` for local development, instant iteration, and CI:
+
+### ⚡ Zero-Rebuild Live Development (`just live`)
+
+When developing `tmux-glance`, you do not need to push to git or rebuild Nix packages to test changes. You can bind your running tmux session directly to your working tree:
 
 ```bash
-# List all recipes
-just
+# Wire active tmux keybindings directly to this local checkout
+just live
+```
 
-# Run the unit and integration test suite
+* **Instant Feedback**: Edit scripts in `bin/` or `sentinels/` $\rightarrow$ Save $\rightarrow$ Press `prefix + s` (or `b` / `g`) in tmux. Changes take effect on the very next keystroke.
+* **Reverting to Installed Package**: Press `prefix + r` (or run `tmux source-file ~/.config/tmux/tmux.conf`) to reset bindings back to your standard installed package.
+
+### 🧪 Automated Testing & CI
+
+```bash
+# Run unit, integration, and headless fzf syntax tests
 just test
 
 # Run Nix flake checks (builds package + runs sandbox tests)
