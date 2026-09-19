@@ -412,5 +412,15 @@ else
     exit 1
 fi
 
+# 22. Interactive Viewfinder FZF Argument & Keybinding Syntax Validation
+echo -n "Test 21: Full interactive popup fzf option and keybinding syntax... "
+fzf_err=$(TMUX_GLANCE_FZF_FILTER="test" TMUX_GLANCE_STATE_FILE="$STATE_FILE" bash "$BIN" list-sessions 2>&1 >/dev/null || true)
+if [[ -z "$fzf_err" ]]; then
+    echo "PASS"
+else
+    echo "FAIL: fzf flag or keybinding validation error: $fzf_err"
+    exit 1
+fi
+
 echo "All headless tmux lifecycle tests passed successfully!"
 

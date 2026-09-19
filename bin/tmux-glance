@@ -1126,9 +1126,15 @@ list_bookmarks() {
     local formatted_list
     formatted_list=$(list_raw "$initial_mode")
 
+    local fzf_extra_args=()
+    if [[ -n "${TMUX_GLANCE_FZF_FILTER:-}" ]]; then
+        fzf_extra_args+=(--filter="$TMUX_GLANCE_FZF_FILTER")
+    fi
+
     # shellcheck disable=SC2016
     local selected
     selected=$(echo "$formatted_list" | fzf \
+        ${fzf_extra_args[@]+"${fzf_extra_args[@]}"} \
         --delimiter=$'\t' \
         --with-nth=1 \
         --ansi \

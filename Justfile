@@ -16,6 +16,23 @@ check:
 build:
     nix build .#tmux-glance
 
+# Wire running tmux directly to this working tree for instant zero-rebuild live development
+live:
+    @if ! tmux info >/dev/null 2>&1; then \
+        echo "Error: tmux server is not running"; \
+        exit 1; \
+    fi
+    @tmux bind-key s display-popup -E -w 85% -h 75% "$PWD/bin/tmux-glance list-sessions"
+    @tmux bind-key b display-popup -E -w 85% -h 75% "$PWD/bin/tmux-glance list"
+    @tmux bind-key g display-popup -E -w 85% -h 75% "$PWD/bin/tmux-glance list-all"
+    @tmux bind-key v run-shell "$PWD/bin/tmux-glance toggle-vigil"
+    @tmux bind-key -r C-h run-shell "$PWD/bin/tmux-glance jump-slot h"
+    @tmux bind-key -r C-j run-shell "$PWD/bin/tmux-glance jump-slot j"
+    @tmux bind-key -r C-k run-shell "$PWD/bin/tmux-glance jump-slot k"
+    @tmux bind-key -r C-l run-shell "$PWD/bin/tmux-glance jump-slot l"
+    @echo "⚡ Live dev mode active: running tmux bindings now point directly to $PWD/bin/tmux-glance"
+
+
 # Run ShellCheck across all scripts
 lint:
     @if command -v shellcheck >/dev/null 2>&1; then \
