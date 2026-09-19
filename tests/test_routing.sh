@@ -65,4 +65,32 @@ else
     exit 1
 fi
 
+# 4. Custom sentinel directory precedence
+echo -n "Test 6: Custom sentinel directory overrides built-in sentinel... "
+tmp_sentinel_dir=$(mktemp -d)
+cat << 'EOF' > "$tmp_sentinel_dir/antigravity.sh"
+sentinel_antigravity_default_commands=("custom-agent-override")
+sentinel_antigravity_matches() {
+    [[ "$1" == "custom-agent-override" ]]
+}
+sentinel_antigravity_classify() {
+    printf "waiting\tcustom sentinel override\n"
+}
+sentinel_antigravity_fingerprint() {
+    echo "custom-hash-val"
+}
+EOF
+
+res_cmd=$(TMUX_GLANCE_SENTINEL_DIR="$tmp_sentinel_dir" bash -c "source '$BIN' 2>/dev/null || true; get_sentinel 'custom-agent-override'")
+res_cls=$(TMUX_GLANCE_SENTINEL_DIR="$tmp_sentinel_dir" bash -c "source '$BIN' 2>/dev/null || true; sentinel_antigravity_classify '1' '/tmp' 'custom-agent-override'")
+
+rm -rf "$tmp_sentinel_dir"
+
+if [[ "$res_cmd" == "antigravity" ]] && [[ "$res_cls" =~ "custom sentinel override" ]]; then
+    echo "PASS"
+else
+    echo "FAIL: expected 'antigravity' and 'custom sentinel override', got cmd='$res_cmd' cls='$res_cls'"
+    exit 1
+fi
+
 echo "All routing tests passed successfully!"

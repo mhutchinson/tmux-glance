@@ -22,14 +22,15 @@ Every speculative jump breaks concentration.
 `tmux-glance` embeds minimal, ambient telemetry directly into your tmux status bar:
 
 ```
-[10:42]  🚨 1  🤖 ⏳ 1  🤖 ⚡ 2  👁️ 1
+[10:42]  🚨 1  👁️ 1  🤖 ⏳ 1  🤖 ⚡ 2
 ```
 
-If the status bar is quiet, you stay focused on your active code. If an icon lights up:
+If the status bar is quiet, you stay focused on your active code. Badges follow a **User-First Domain Clustering** order (manual user vigils lead, followed by autonomous background agents):
 * `🚨 1` — A pane under **Vigil** just printed new terminal output!
+* `👁️ 1` — Panes actively being watched under Vigil in the background.
 * `🤖 ⏳ 1` — A background agent is blocked **waiting for confirmation**.
+* `🤖 ⚡ 2` — Background agents actively running.
 * `🤖 ✓ 1` — An agent completed its task or updated its output.
-* `👁️ 1` — Panes actively being watched in the background.
 
 With one keystroke (`prefix b`), open the **Attention Hub** popup to see only the tasks that need you, inspect their output with live ANSI preview, and press `Enter` to jump straight to the pane.
 
@@ -38,10 +39,10 @@ With one keystroke (`prefix b`), open the **Attention Hub** popup to see only th
 ## Demos & Workflow
 
 ### 1. Ambient Status Bar Telemetry
-Ambient icons stay out of your way until state changes:
+Ambient icons stay out of your way until state changes (manual vigils grouped first, then background agents):
 
 ```tmux
-#[fg=#f38ba8,bold]🚨 1#[default]  #[fg=#fab387,bold]🤖 ⏳ 1#[default]  #[fg=#b4befe]👁️ 2#[default]
+#[fg=#f38ba8,bold]🚨 1#[default]  #[fg=#b4befe]👁️ 2#[default]  #[fg=#fab387,bold]🤖 ⏳ 1#[default]
 ```
 
 ### 2. Attention Hub (`prefix b`)

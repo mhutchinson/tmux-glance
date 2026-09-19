@@ -16,7 +16,7 @@ As terminal workflows transition from synchronous shell commands to autonomous, 
 
 ## 2. Core Philosophy & Architectural Invariants
 
-1. **Glanceable by Default:** Ambient status-right cues (`🚨 1`, `🤖 ⏳ 1`, `🤖 ✓ 1`, `👁️ 2`) convey server-wide state at the edge of the developer's vision. If the status bar is quiet, zero action is required.
+1. **Glanceable by Default (User-First Domain Clustering):** Ambient status-right cues (`🚨 1`, `👁️ 2`, `🤖 ⏳ 1`, `🤖 ⚡ 2`, `🤖 ✓ 1`) convey server-wide state at the edge of the developer's vision. To put the developer first, manual user vigils (`🚨`, `👁️`) are clustered on the left, followed by autonomous background agents (`🤖 ⏳`, `🤖 ⚡`, `🤖 ✓`) on the right. If the status bar is quiet, zero action is required.
 2. **Minimally Invasive by Default:** Designed to drop into mature, existing tmux setups with zero namespace collision.
    * Only registers non-disruptive core bindings by default (`prefix g`, `prefix b`, `prefix v`).
    * Never hijacks standard tmux defaults (especially `prefix [` copy-mode, or `c`, `z`, `n`, `p`).
@@ -25,7 +25,7 @@ As terminal workflows transition from synchronous shell commands to autonomous, 
 3. **Sub-50ms Status Bar Execution Budget:** `tmux-glance status` runs synchronously inside `status-right` on tmux's `status-interval`. It must execute in `< 50ms`. Zero network requests or heavy subshell pipelines are permitted. All external telemetry (such as API quotas or saturation gauges) must read pre-warmed local cache files written asynchronously out-of-band.
 4. **Pluggable Sentinels:** Agent TUIs and process monitors are decoupled behind a clean, pluggable Sentinel interface (`matches`, `classify`, `fingerprint`), enabling modular support for diverse agents without core multiplexer entanglement.
 5. **Intelligent Thought & Spinner Normalization:** Sentinels strip transient visual noise—such as animated braille spinners (`[⣟⣯⣷]`) and streaming thought indicators—before computing buffer fingerprints, eliminating false-positive unread alarms.
-6. **Zero-Friction Auto-Acknowledgment & Dwell Protection:** Merely switching focus into an alerted pane acknowledges and clears the alert. However, rapid cycling or navigation across panes must suppress auto-acknowledgment until dwell time expires, preventing accidental clearing of unread alerts while whizzing past.
+6. **Zero-Friction Auto-Acknowledgment:** Merely switching focus into an alerted pane acknowledges and clears the alert. (Note: Rapid navigation dwell-time suppression to protect unread alerts while cycling past is scheduled for milestone v0.10 alongside quickfix cycling).
 7. **Rock-Solid Concurrency & Atomicity:** Atomic directory locking (`.lock` via `mkdir`) and temporary file renames (`mv`) protect state across concurrent tmux status redraws, window switches, and hook triggers.
 8. **Cross-Platform POSIX Portability:** Scripts and tests run seamlessly on Darwin (macOS BSD coreutils, `md5`) and Linux (GNU coreutils, `md5sum`).
 
@@ -53,7 +53,7 @@ flowchart TD
     end
 
     subgraph Presentation & UI
-        Status["Tmux status-right\n'🚨 1  🤖 ⏳ 1  👁️ 1'"]
+        Status["Tmux status-right\n'🚨 1  👁️ 1  🤖 ⏳ 1'"]
         Hub["Attention Hub (prefix b)\nUrgent tasks sorted by priority"]
         Fleet["Glance Fleet (prefix g)\nAll server agents & vigils"]
         Preview["fzf ANSI Live Preview\n(tail -n 30 of active pane)"]

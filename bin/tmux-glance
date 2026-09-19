@@ -36,10 +36,10 @@ for s_dir in "${SENTINEL_DIRS[@]}"; do
     [[ -n "$s_dir" && -d "$s_dir" ]] || continue
     for s_file in "$s_dir"/*.sh; do
         [[ -f "$s_file" ]] || continue
-        # shellcheck source=/dev/null
-        source "$s_file"
         s_name="$(basename "$s_file" .sh)"
         if [[ ! " ${SENTINELS[*]} " == *" ${s_name} "* ]]; then
+            # shellcheck source=/dev/null
+            source "$s_file"
             SENTINELS+=("$s_name")
         fi
     done
