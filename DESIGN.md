@@ -204,6 +204,12 @@ Global navigation chords, jumplist rewinds, and queue cycling can collide with p
 
 *Note: Users who do not opt into Tier 2 bindings still have 100% access to history, sessions, and navigation features from inside the popup dashboard (`Ctrl-h`, `Ctrl-s`, `Ctrl-p`, etc.) without polluting their global prefix table.*
 
+### Known Ergonomic Limitations & Quirks
+
+* **In-Modal Harpoon Assignment Visual Refresh:**
+  - **Behavior:** When pinning or unpinning a Harpoon slot (`Ctrl-p`) from within the sessionizer popup, the slot assignment is recorded immediately to `$SLOTS_FILE`. However, because `fzf`'s curses engine does not dirty stationary lines across background `reload()` when total item count remains unchanged, the new slot badge (`[H]`, `[J]`, etc.) is repainted on screen upon the next cursor movement (pressing `Up` or `Down`).
+  - **Status:** Tracked as [Issue #1](https://github.com/mhutchinson/tmux-glance/issues/1) for a future native in-view selection or non-subshell transition.
+
 ---
 
 ## 7. Design Evolution Log

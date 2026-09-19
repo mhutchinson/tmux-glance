@@ -77,7 +77,7 @@ With one keystroke (`prefix b`), open the **Attention Hub** popup to see only th
 > **Inside the Viewfinder Popup:**
 > * `Ctrl-b` — Toggle instantly between the filtered Attention Hub and full Fleet View.
 > * `Ctrl-s` — Switch to the Sessionizer to search and jump between active tmux sessions with ambient status badges.
-> * `Ctrl-p` — Pin / unpin highlighted session to a Harpoon slot (`h`, `j`, `k`, `l`).
+> * `Ctrl-p` — Pin / unpin highlighted session to a Harpoon slot (`h`, `j`, `k`, `l`). *(Note: badge renders on next cursor movement `Up`/`Down`)*.
 > * `Ctrl-/` / `F1` — Open the in-modal cheat sheet overlay.
 > * `Enter` — Teleport straight into the selected pane or session.
 > * `Esc` — Close the popup without jumping.
