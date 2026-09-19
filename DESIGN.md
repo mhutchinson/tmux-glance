@@ -189,7 +189,7 @@ Only binds dedicated, non-disruptive keys. Preserves all standard tmux navigatio
 | `Ctrl-b` | *Popup only* | **Toggle View:** Flip between Attention Hub and Glance Fleet inside fzf. |
 | `Ctrl-s` | *Popup only* | **Sessionizer:** Flip to active tmux sessions with ambient status badges. |
 | `Ctrl-p` | *Popup only (Sessionizer)* | **Pin Slot:** Assign or clear Harpoon session slot (`h/j/k/l`). |
-| `Ctrl-?` / `Ctrl-/` | *Popup only* | **Cheat Sheet:** Display modal-only navigation shortcuts overlay. |
+| `Ctrl-/` / `F1` | *Popup only* | **Cheat Sheet:** Display modal-only navigation shortcuts overlay. |
 | `Enter` | *Popup only* | **Jump:** Instantly switch client, window, and pane to target. |
 
 ### Tier 2: Power-User & Direct Navigation (Strictly Opt-In)
@@ -212,7 +212,7 @@ Global navigation chords, jumplist rewinds, and queue cycling can collide with p
   - Integrated tmux session navigation directly into the Glance popup (`Ctrl-s`).
   - Ambient badge aggregation computes per-workspace telemetry (`🚨 1`, `🤖 ⏳ 1`, `👁️ 2`).
   - Interactive modal Harpoon slot pinning (`Ctrl-p` in Sessionizer $\rightarrow$ `h/j/k/l`).
-  - In-modal help cheat sheet (`Ctrl-?` / `Ctrl-/`) scoped strictly to viewfinder controls.
+  - In-modal help cheat sheet (`Ctrl-/` / `F1`) scoped strictly to viewfinder controls.
   - Opt-in Tier 2 fast session jumping via `prefix -r C-h/j/k/l` (`jump-slot`).
 * **v3.0 Standalone Project Extraction (`tmux-glance`):**
   - Formalized as standalone flake and TPM package.

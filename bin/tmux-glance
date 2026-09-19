@@ -1011,7 +1011,7 @@ cheat_sheet() {
   │                                                             │
   │ General:                                                    │
   │   Enter        Jump to highlighted pane / session           │
-  │   Ctrl-? / /   Toggle this help cheat sheet                 │
+  │   Ctrl-/ / F1  Toggle this help cheat sheet                 │
   │   Esc          Close popup / cancel                         │
   └─────────────────────────────────────────────────────────────┘
 
@@ -1132,7 +1132,7 @@ list_bookmarks() {
         --delimiter=$'\t' \
         --with-nth=1 \
         --ansi \
-        --header="👁️ tmux-glance (Ctrl-s: Sessions | Ctrl-b: View | Ctrl-p: Pin | Ctrl-?: Help | Enter: Jump)" \
+        --header="👁️ tmux-glance (Ctrl-s: Sessions | Ctrl-b: View | Ctrl-p: Pin | Ctrl-/: Help | Enter: Jump)" \
         --layout=reverse \
         --border=rounded \
         --info=inline \
@@ -1140,7 +1140,7 @@ list_bookmarks() {
         --bind "ctrl-s:reload($SELF_BIN list-raw toggle-sessions)" \
         --bind "ctrl-p:execute($SELF_BIN pin-interactive {2})+reload($SELF_BIN list-raw current)" \
         --bind "ctrl-/:execute($SELF_BIN cheat-sheet)" \
-        --bind "ctrl-?:execute($SELF_BIN cheat-sheet)" \
+        --bind "f1:execute($SELF_BIN cheat-sheet)" \
         --preview "\"$SELF_BIN\" preview {2}" \
         --preview-window='down:60%:wrap:follow' \
     )
