@@ -164,4 +164,117 @@ else
     exit 1
 fi
 
+# 12. Dead pane pruning
+echo -n "Test 11: Dead pane pruning removes terminated panes from state and status... "
+tmux -S "$SOCK" new-window -t test-sess -n win_dead "cat"
+pane_dead_id=$(tmux -S "$SOCK" list-panes -t test-sess:win_dead -F '#{pane_id}')
+tmux -S "$SOCK" select-window -t test-sess:win_dead
+tmux -S "$SOCK" run-shell "bash '$BIN' toggle-vigil"
+tmux -S "$SOCK" select-window -t test-sess:win2
+# Verify it was added
+status_out=$(get_status)
+if ! [[ "$status_out" =~ 👁️ ]]; then
+    echo "FAIL: Expected vigil watch before pane kill, got '$status_out'"
+    exit 1
+fi
+# Kill the window
+tmux -S "$SOCK" kill-window -t test-sess:win_dead
+# Run scan / status
+status_out=$(get_status)
+if [[ -z "$status_out" ]] && ! grep -q "$pane_dead_id" "$STATE_FILE" 2>/dev/null; then
+    echo "PASS (Dead pane pruned from state)"
+else
+    echo "FAIL: Dead pane was not pruned, status='$status_out'"
+    exit 1
+fi
+
+# 13. Composite multi-badge status line formatting (User-First domain ordering)
+echo -n "Test 12: Composite multi-badge status line preserves User-First ordering... "
+# Create panes for each category:
+# 1. Alert pane:
+tmux -S "$SOCK" new-window -t test-sess -n win_c_alert "cat"
+pane_c_alert=$(tmux -S "$SOCK" list-panes -t test-sess:win_c_alert -F '#{pane_id}')
+tmux -S "$SOCK" select-window -t test-sess:win_c_alert
+tmux -S "$SOCK" run-shell "bash '$BIN' toggle-vigil"
+
+# 2. Quiet Vigil pane:
+tmux -S "$SOCK" new-window -t test-sess -n win_c_vigil "cat"
+tmux -S "$SOCK" select-window -t test-sess:win_c_vigil
+tmux -S "$SOCK" run-shell "bash '$BIN' toggle-vigil"
+
+# 3. Agent Waiting pane:
+tmux -S "$SOCK" new-window -t test-sess -n win_c_wait "head -n 1000"
+pane_c_wait=$(tmux -S "$SOCK" list-panes -t test-sess:win_c_wait -F '#{pane_id}')
+tmux -S "$SOCK" send-keys -t "$pane_c_wait" "Requesting permission for command" C-m
+
+# 4. Agent Running pane:
+tmux -S "$SOCK" new-window -t test-sess -n win_c_run "head -n 1000"
+pane_c_run=$(tmux -S "$SOCK" list-panes -t test-sess:win_c_run -F '#{pane_id}')
+tmux -S "$SOCK" send-keys -t "$pane_c_run" "Processing batch items" C-m
+tmux -S "$SOCK" send-keys -t "$pane_c_run" "esc to cancel" C-m
+
+# Trigger alert on win_c_alert
+tmux -S "$SOCK" send-keys -t "$pane_c_alert" "ALERT TRIGGER OUTPUT" C-m
+
+# Switch to win2 so all test panes are background
+tmux -S "$SOCK" select-window -t test-sess:win2
+sleep 0.2
+tmux -S "$SOCK" run-shell "bash '$BIN' scan"
+
+status_out=$(get_status)
+# Strip ANSI escapes to check order: 🚨 1  👁️ 1  🤖 ⏳ 1  🤖 ⚡ 1
+clean_status=$(echo "$status_out" | sed -E 's/#\[[^]]*\]//g')
+if [[ "$clean_status" =~ 🚨[[:space:]]*1.*👁️[[:space:]]*1.*🤖[[:space:]]*⏳[[:space:]]*1.*🤖[[:space:]]*⚡[[:space:]]*1 ]]; then
+    echo "PASS (Composite status: $clean_status)"
+else
+    echo "FAIL: Expected user-first ordering (🚨 -> 👁️ -> 🤖 ⏳ -> 🤖 ⚡), got '$clean_status'"
+    exit 1
+fi
+
+# Clean up composite test windows
+tmux -S "$SOCK" kill-window -t test-sess:win_c_alert
+tmux -S "$SOCK" kill-window -t test-sess:win_c_vigil
+tmux -S "$SOCK" kill-window -t test-sess:win_c_wait
+tmux -S "$SOCK" kill-window -t test-sess:win_c_run
+tmux -S "$SOCK" run-shell "bash '$BIN' scan"
+
+# 14. Agent process exit detection
+echo -n "Test 13: Agent process exit transitions state to 'done' (Finished)... "
+tmux -S "$SOCK" new-window -t test-sess -n win_c_exit "bash"
+pane_c_exit=$(tmux -S "$SOCK" list-panes -t test-sess:win_c_exit -F '#{pane_id}')
+# Seed the state file with an agent running in this pane
+printf "%s\ttest-sess\t1\t0\t/tmp\thead\trunning in tmp\tauto\trunning\n" "$pane_c_exit" >> "$STATE_FILE"
+tmux -S "$SOCK" select-window -t test-sess:win2
+# When scan runs, cmd is 'cat' (generic) and ps has no agy, so it detects exit -> done
+tmux -S "$SOCK" run-shell "bash '$BIN' scan"
+status_out=$(get_status)
+if [[ "$status_out" =~ 🤖[[:space:]]+✓[[:space:]]+1 ]]; then
+    echo "PASS (Detected process exit, status: $status_out)"
+else
+    echo "FAIL: Expected '🤖 ✓ 1', got '$status_out'"
+    exit 1
+fi
+# Focus to acknowledge and clear done
+tmux -S "$SOCK" select-window -t test-sess:win_c_exit
+tmux -S "$SOCK" run-shell "bash '$BIN' on-focus $pane_c_exit"
+tmux -S "$SOCK" kill-window -t test-sess:win_c_exit
+status_out=$(get_status)
+if [[ "$status_out" =~ 🤖 ]]; then
+    echo "FAIL: Done status not cleared on focus"
+    exit 1
+fi
+
+# 15. Stale lock recovery
+echo -n "Test 14: Stale directory lock is automatically recovered... "
+# Manually create a stale lock
+mkdir -p "${STATE_FILE}.lock"
+# Running status should encounter the lock, break it after threshold, and succeed
+status_out=$(get_status)
+if [[ ! -d "${STATE_FILE}.lock" ]]; then
+    echo "PASS (Stale lock broken and released)"
+else
+    echo "FAIL: Lock directory still exists after operation"
+    exit 1
+fi
+
 echo "All headless tmux lifecycle tests passed successfully!"

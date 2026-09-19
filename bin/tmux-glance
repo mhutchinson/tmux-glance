@@ -192,8 +192,10 @@ release_lock() {
 
 with_lock() {
     acquire_lock
+    trap 'release_lock' EXIT INT TERM
     local ret=0
     "$@" || ret=$?
+    trap - EXIT INT TERM
     release_lock
     return $ret
 }
