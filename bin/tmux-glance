@@ -55,14 +55,16 @@ if [[ ${#SENTINELS[@]} -eq 0 ]]; then
     }
     sentinel_antigravity_classify() {
         local pane_id="$1" path="$2" cmd="$3"
-        local tail_text
-        tail_text=$(tmux capture-pane -p -t "$pane_id" 2>/dev/null | tail -n 4)
-        if [[ "$tail_text" =~ (Requesting[[:space:]]permission[[:space:]]for|Run[[:space:]]this[[:space:]]command\?|Navigate[[:space:]]·[[:space:]]tab[[:space:]]Amend|1\.[[:space:]]Yes,[[:space:]]run[[:space:]]command|\(y/n\)) ]]; then
-            printf "waiting\twaiting for confirmation in %s\n" "$(basename "$path")"
-        elif [[ "$tail_text" =~ "esc to cancel" ]]; then
-            printf "running\trunning in %s\n" "$(basename "$path")"
-        elif [[ "$tail_text" =~ "\? for shortcuts" ]]; then
+        local non_empty last_line tail_text
+        non_empty=$(tmux capture-pane -p -t "$pane_id" 2>/dev/null | grep -v '^[[:space:]]*$')
+        last_line=$(echo "$non_empty" | tail -n 1)
+        tail_text=$(echo "$non_empty" | tail -n 10)
+        if [[ "$last_line" =~ \?[[:space:]]for[[:space:]]shortcuts ]]; then
             printf "idle\tidle in %s\n" "$(basename "$path")"
+        elif [[ "$tail_text" =~ (Requesting[[:space:]]permission[[:space:]]for|Run[[:space:]]this[[:space:]]command\?|Navigate[[:space:]]·|1\.[[:space:]]Yes,[[:space:]]run[[:space:]]command|\(y/n\)) ]]; then
+            printf "waiting\twaiting for confirmation in %s\n" "$(basename "$path")"
+        elif [[ "$tail_text" =~ esc[[:space:]]to[[:space:]]cancel ]]; then
+            printf "running\trunning in %s\n" "$(basename "$path")"
         else
             printf "unknown\t%s\n" "$(basename "$path")"
         fi
@@ -376,19 +378,33 @@ scan_agents() {
 
                 if [[ $is_focused -eq 1 ]]; then
                     tmux set-option -p -t "$pane_id" @glance_agent_snapshot "$curr_hash" 2>/dev/null || true
-                    if [[ "$current_state" == "done" ]]; then
+                    if [[ -n "$current_state" ]]; then
                         unset "bm_kind[$pane_id]"
                         unset "bm_state[$pane_id]"
                         unset "bm_label[$pane_id]"
                         updated=1
-                        continue
                     fi
+                    continue
                 else
                     if [[ -n "$prev_hash" && "$curr_hash" != "$prev_hash" ]]; then
                         new_state="done"
                         new_label="updated in $(basename "$path")"
                     elif [[ -z "$prev_hash" ]]; then
                         tmux set-option -p -t "$pane_id" @glance_agent_snapshot "$curr_hash" 2>/dev/null || true
+                        if [[ "$current_state" == "waiting" || "$current_state" == "running" ]]; then
+                            unset "bm_kind[$pane_id]"
+                            unset "bm_state[$pane_id]"
+                            unset "bm_label[$pane_id]"
+                            updated=1
+                        fi
+                    else
+                        # Snapshot matches prev_hash: idle with no unread activity
+                        if [[ "$current_state" == "waiting" || "$current_state" == "running" ]]; then
+                            unset "bm_kind[$pane_id]"
+                            unset "bm_state[$pane_id]"
+                            unset "bm_label[$pane_id]"
+                            updated=1
+                        fi
                     fi
                 fi
             fi
@@ -398,7 +414,7 @@ scan_agents() {
                 if [[ -z "$current_state" ]]; then
                     continue
                 fi
-                if [[ "$new_state" == "done" || "$current_state" == "done" ]]; then
+                if [[ "$new_state" == "done" || "$current_state" == "done" || "$new_state" == "idle" ]]; then
                     unset "bm_kind[$pane_id]"
                     unset "bm_state[$pane_id]"
                     unset "bm_label[$pane_id]"
@@ -491,12 +507,31 @@ on_focus() {
         kind=$(echo "$entry" | awk -F'\t' '{print $8}')
         state=$(echo "$entry" | awk -F'\t' '{print $9}')
 
-        if [[ "$kind" == "auto" && "$state" == "done" ]]; then
-            local temp_file
-            temp_file=$(mktemp)
-            grep -v "^${target_pane}	" "$STATE_FILE" > "$temp_file" 2>/dev/null || true
-            mv "$temp_file" "$STATE_FILE"
-            tmux refresh-client -S 2>/dev/null || true
+        if [[ "$kind" == "auto" ]]; then
+            if [[ "$state" == "done" ]]; then
+                local temp_file
+                temp_file=$(mktemp)
+                grep -v "^${target_pane}	" "$STATE_FILE" > "$temp_file" 2>/dev/null || true
+                mv "$temp_file" "$STATE_FILE"
+                tmux refresh-client -S 2>/dev/null || true
+            else
+                local cmd_f sentinel_f
+                cmd_f=$(tmux display-message -p -t "$target_pane" '#{pane_current_command}' 2>/dev/null || true)
+                sentinel_f=$(get_sentinel "$cmd_f")
+                if [[ "$sentinel_f" != "generic" ]]; then
+                    local path_f cls_f st_f
+                    path_f=$(tmux display-message -p -t "$target_pane" '#{pane_current_path}' 2>/dev/null || true)
+                    cls_f=$("sentinel_${sentinel_f}_classify" "$target_pane" "$path_f" "$cmd_f" 2>/dev/null || true)
+                    st_f=$(echo "$cls_f" | cut -f1)
+                    if [[ "$st_f" == "idle" ]]; then
+                        local temp_file
+                        temp_file=$(mktemp)
+                        grep -v "^${target_pane}	" "$STATE_FILE" > "$temp_file" 2>/dev/null || true
+                        mv "$temp_file" "$STATE_FILE"
+                        tmux refresh-client -S 2>/dev/null || true
+                    fi
+                fi
+            fi
         elif [[ "$kind" == "manual" ]]; then
             local curr_hash
             curr_hash=$(hash_screen "$target_pane")

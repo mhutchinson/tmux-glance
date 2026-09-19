@@ -79,15 +79,59 @@ else
 fi
 
 echo -n "Test 4: Classification of waiting permission prompt... "
-mock_pane_capture() {
-    echo "$buf4"
-}
-# Test classifier logic directly
-tail_text=$(echo "$buf4" | tail -n 4)
-if [[ "$tail_text" =~ (Requesting[[:space:]]permission[[:space:]]for|Run[[:space:]]this[[:space:]]command\?|Navigate[[:space:]]·[[:space:]]tab[[:space:]]Amend|1\.[[:space:]]Yes,[[:space:]]run[[:space:]]command|\(y/n\)) ]]; then
+tail_text=$(echo "$buf4" | grep -v '^[[:space:]]*$' | tail -n 10)
+if [[ "$tail_text" =~ (Requesting[[:space:]]permission[[:space:]]for|Run[[:space:]]this[[:space:]]command\?|Navigate[[:space:]]·|1\.[[:space:]]Yes,[[:space:]]run[[:space:]]command|\(y/n\)) ]]; then
     echo "PASS (Classified as waiting)"
 else
     echo "FAIL: Failed to classify permission prompt"
+    exit 1
+fi
+
+echo -n "Test 5: Classification of idle prompt (? for shortcuts)... "
+buf_idle=$(cat << 'EOF'
+Welcome to Antigravity CLI
+>
+─────────────────────────────────────────────
+? for shortcuts                                accept-edits · Gemini 3.8 Flash · medium
+EOF
+)
+tail_idle=$(echo "$buf_idle" | grep -v '^[[:space:]]*$' | tail -n 10)
+if [[ "$tail_idle" =~ \?[[:space:]]for[[:space:]]shortcuts ]]; then
+    echo "PASS (Classified as idle)"
+else
+    echo "FAIL: Failed to classify idle prompt"
+    exit 1
+fi
+
+echo -n "Test 6: Classification with trailing blank lines... "
+buf_trailing=$(cat << 'EOF'
+Welcome to Antigravity CLI
+? for shortcuts                                accept-edits · Gemini 3.8 Flash · medium
+
+
+
+
+EOF
+)
+tail_trailing=$(echo "$buf_trailing" | grep -v '^[[:space:]]*$' | tail -n 10)
+if [[ "$tail_trailing" =~ \?[[:space:]]for[[:space:]]shortcuts ]]; then
+    echo "PASS (Classified as idle despite trailing blank lines)"
+else
+    echo "FAIL: Failed to classify with trailing blank lines"
+    exit 1
+fi
+
+echo -n "Test 7: Classification of running execution (esc to cancel)... "
+buf_running=$(cat << 'EOF'
+Executing step 3/5...
+esc to cancel                                  Gemini 3.8 Flash · medium
+EOF
+)
+tail_running=$(echo "$buf_running" | grep -v '^[[:space:]]*$' | tail -n 10)
+if [[ "$tail_running" =~ esc[[:space:]]to[[:space:]]cancel ]]; then
+    echo "PASS (Classified as running)"
+else
+    echo "FAIL: Failed to classify running state"
     exit 1
 fi
 

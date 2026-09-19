@@ -18,16 +18,18 @@ sentinel_antigravity_classify() {
     local path="$2"
     local cmd="$3"
 
-    local tail_text
-    tail_text=$(tmux capture-pane -p -t "$pane_id" 2>/dev/null | tail -n 4)
+    local non_empty last_line tail_text
+    non_empty=$(tmux capture-pane -p -t "$pane_id" 2>/dev/null | grep -v '^[[:space:]]*$')
+    last_line=$(echo "$non_empty" | tail -n 1)
+    tail_text=$(echo "$non_empty" | tail -n 10)
 
-    # Classify state based on strict footer cues
-    if [[ "$tail_text" =~ (Requesting[[:space:]]permission[[:space:]]for|Run[[:space:]]this[[:space:]]command\?|Navigate[[:space:]]·[[:space:]]tab[[:space:]]Amend|1\.[[:space:]]Yes,[[:space:]]run[[:space:]]command|\(y/n\)) ]]; then
-        printf "waiting\twaiting for confirmation in %s\n" "$(basename "$path")"
-    elif [[ "$tail_text" =~ "esc to cancel" ]]; then
-        printf "running\trunning in %s\n" "$(basename "$path")"
-    elif [[ "$tail_text" =~ "\? for shortcuts" ]]; then
+    # Strict footer cue evaluation: if bottom line is resting prompt, agent is idle
+    if [[ "$last_line" =~ \?[[:space:]]for[[:space:]]shortcuts ]]; then
         printf "idle\tidle in %s\n" "$(basename "$path")"
+    elif [[ "$tail_text" =~ (Requesting[[:space:]]permission[[:space:]]for|Run[[:space:]]this[[:space:]]command\?|Navigate[[:space:]]·|1\.[[:space:]]Yes,[[:space:]]run[[:space:]]command|\(y/n\)) ]]; then
+        printf "waiting\twaiting for confirmation in %s\n" "$(basename "$path")"
+    elif [[ "$tail_text" =~ esc[[:space:]]to[[:space:]]cancel ]]; then
+        printf "running\trunning in %s\n" "$(basename "$path")"
     else
         printf "unknown\t%s\n" "$(basename "$path")"
     fi
