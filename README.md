@@ -1,7 +1,25 @@
 # 👁️ tmux-glance
 
-**Glanceable terminal sentinels and background agent orchestration for tmux.**  
-*Stop speculative window hopping. Stay in flow.*
+<p align="center">
+  <img src="assets/tmux-glance-sticker.jpg" alt="tmux-glance: Stay in flow" width="640" />
+</p>
+
+<p align="center">
+  <strong>Ambient activity indicators, crystal-ball pane peering, and instant teleportation for tmux.</strong><br>
+  <em>Stop speculative window hopping. Stay in flow.</em>
+</p>
+
+---
+
+## What is tmux-glance?
+
+`tmux-glance` turns tmux into an ambient heads-up display for long-running builds, test suites, and autonomous AI agents:
+
+* 🔮 **Crystal Ball Peering (`prefix b` / `prefix g`):** Pop open a floating viewfinder to peer into any pane across any session on your tmux server. Watch compiler output, log streams, or agent progress in real-time ANSI preview without leaving your current workspace.
+* ⚡ **Instant Teleportation (`Enter`):** When something needs your hands, hit `Enter` in the viewfinder to teleport straight into that session, window, and pane.
+* 👁️ **Glanceable Status Bar Icons:** Ambient indicators (`🚨 1`, `👁️ 2`, `🤖 ⏳ 1`, `🤖 ⚡ 2`) sit quietly in your status bar. If it's quiet, you stay in flow; if a build fails or an agent is blocked waiting for you, you know immediately.
+* 🎯 **One-Key Vigil Watches (`prefix v`):** Slap a sentinel on *any* shell command or long compile. Switch away, and your status bar will flash `🚨 1` the exact moment new output appears.
+  * *Want custom trigger logic or noise filtering for a specific application?* Write your own [**Sentinel plugin**](#pluggable-sentinels) in a few lines of bash! Sentinels can classify custom states (`waiting`, `running`, `idle`) and normalize spinners or streaming thought lines so you only get alerted when it truly matters.
 
 ---
 
