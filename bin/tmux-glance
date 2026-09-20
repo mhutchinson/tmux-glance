@@ -1207,48 +1207,144 @@ clear_history() {
     tmux display-message "Jump history cleared" 2>/dev/null || true
 }
 
+_format_history_line() {
+    local badge="$1" target_pane="$2"
+    local p_info
+    p_info=$(tmux display-message -p -t "$target_pane" '#{pane_id}|#{session_name}|#{window_index}|#{pane_index}|#{pane_current_path}|#{pane_current_command}' 2>/dev/null || true)
+    [[ -z "$p_info" ]] && return 0
+
+    local p_id sess win pane path cmd
+    IFS='|' read -r p_id sess win pane path cmd <<< "$p_info"
+    [[ -z "$p_id" ]] && return 0
+
+    local display_ctx="[$sess:$win.$pane] $cmd"
+    if [[ ${#display_ctx} -gt 16 ]]; then
+        display_ctx="${display_ctx:0:13}..."
+    fi
+
+    local repo_name
+    repo_name=$(basename "$path")
+    if [[ ${#repo_name} -gt 24 ]]; then
+        repo_name="${repo_name:0:21}..."
+    fi
+
+    local display_label="$path"
+    if [[ ${#display_label} -gt 32 ]]; then
+        display_label="${display_label:0:29}..."
+    fi
+
+    printf "%s│ %-16s │ %-24s │ %s\t%s\n" "$badge" "$display_ctx" "$repo_name" "$display_label" "$p_id"
+}
+
 get_history_list() {
-    local count=0
+    local current_pane_id
+    current_pane_id=$(tmux display-message -p '#{pane_id}' 2>/dev/null || true)
+
+    local fwd_panes=()
+    if [[ -f "$JUMP_FORWARD_FILE" ]]; then
+        while IFS= read -r pane_id; do
+            [[ -z "$pane_id" ]] && continue
+            local check
+            check=$(tmux display-message -p -t "$pane_id" '#{pane_id}' 2>/dev/null || true)
+            if [[ "$check" == "$pane_id" && "$pane_id" != "$current_pane_id" ]]; then
+                fwd_panes+=("$pane_id")
+            fi
+        done < "$JUMP_FORWARD_FILE"
+    fi
+
+    local back_panes=()
     if [[ -f "$JUMP_BACK_FILE" ]]; then
         while IFS= read -r pane_id; do
             [[ -z "$pane_id" ]] && continue
-
-            local p_info
-            p_info=$(tmux display-message -p -t "$pane_id" '#{pane_id}|#{session_name}|#{window_index}|#{pane_index}|#{pane_current_path}|#{pane_current_command}' 2>/dev/null || true)
-            [[ -z "$p_info" ]] && continue
-
-            local p_id sess win pane path cmd
-            IFS='|' read -r p_id sess win pane path cmd <<< "$p_info"
-            [[ -z "$p_id" ]] && continue
-
-            count=$((count + 1))
-            local badge
-            badge=$(printf "🕒 Jump #%-3d  " "$count")
-
-            local display_ctx="[$sess:$win.$pane] $cmd"
-            if [[ ${#display_ctx} -gt 16 ]]; then
-                display_ctx="${display_ctx:0:13}..."
+            local check
+            check=$(tmux display-message -p -t "$pane_id" '#{pane_id}' 2>/dev/null || true)
+            if [[ "$check" == "$pane_id" && "$pane_id" != "$current_pane_id" ]]; then
+                back_panes+=("$pane_id")
             fi
-
-            local repo_name
-            repo_name=$(basename "$path")
-            if [[ ${#repo_name} -gt 24 ]]; then
-                repo_name="${repo_name:0:21}..."
-            fi
-
-            local display_label="$path"
-            if [[ ${#display_label} -gt 32 ]]; then
-                display_label="${display_label:0:29}..."
-            fi
-
-            printf "%s│ %-16s │ %-24s │ %s\t%s\n" "$badge" "$display_ctx" "$repo_name" "$display_label" "$p_id"
         done < "$JUMP_BACK_FILE"
     fi
 
-    if [[ $count -eq 0 ]]; then
+    local num_fwd=${#fwd_panes[@]}
+    local num_back=${#back_panes[@]}
+
+    # 1. Forward entries in reverse order so FWD #1 is immediate neighbor above CUR
+    local i
+    for (( i=num_fwd-1; i>=0; i-- )); do
+        local f_idx=$((i + 1))
+        local f_badge
+        f_badge=$(printf "⏭️  FWD #%-2d   " "$f_idx")
+        _format_history_line "$f_badge" "${fwd_panes[i]}"
+    done
+
+    # 2. Current active pane
+    if [[ -n "$current_pane_id" ]]; then
+        local c_badge="📍 CUR       "
+        _format_history_line "$c_badge" "$current_pane_id"
+    fi
+
+    # 3. Back entries in chronological order (BACK #1 is immediate neighbor below CUR)
+    for (( i=0; i<num_back; i++ )); do
+        local b_idx=$((i + 1))
+        local b_badge
+        b_badge=$(printf "⏮️  BACK #%-2d  " "$b_idx")
+        _format_history_line "$b_badge" "${back_panes[i]}"
+    done
+
+    # 4. Fallback if no panes at all could be resolved
+    if [[ -z "$current_pane_id" && $num_fwd -eq 0 && $num_back -eq 0 ]]; then
         printf "%s│ %-16s │ %-24s │ %s\t%s\n" "🕒 Empty      " "[0:0.0]" "none" "No jump history recorded yet" ""
     fi
 }
+
+get_history_cursor_pos() {
+    local current_pane_id
+    current_pane_id=$(tmux display-message -p '#{pane_id}' 2>/dev/null || true)
+
+    local num_fwd=0
+    if [[ -f "$JUMP_FORWARD_FILE" ]]; then
+        while IFS= read -r p; do
+            [[ -z "$p" ]] && continue
+            local check
+            check=$(tmux display-message -p -t "$p" '#{pane_id}' 2>/dev/null || true)
+            if [[ "$check" == "$p" && "$p" != "$current_pane_id" ]]; then
+                num_fwd=$((num_fwd + 1))
+            fi
+        done < "$JUMP_FORWARD_FILE"
+    fi
+
+    local num_back=0
+    if [[ -f "$JUMP_BACK_FILE" ]]; then
+        while IFS= read -r p; do
+            [[ -z "$p" ]] && continue
+            local check
+            check=$(tmux display-message -p -t "$p" '#{pane_id}' 2>/dev/null || true)
+            if [[ "$check" == "$p" && "$p" != "$current_pane_id" ]]; then
+                num_back=$((num_back + 1))
+            fi
+        done < "$JUMP_BACK_FILE"
+    fi
+
+    if [[ $num_back -gt 0 ]]; then
+        echo "$((num_fwd + 2))"
+    elif [[ $num_fwd -gt 0 ]]; then
+        echo "$num_fwd"
+    else
+        echo "1"
+    fi
+}
+
+eval_history_action() {
+    local current_mode
+    current_mode=$(tmux show-option -gv @glance_mode 2>/dev/null || true)
+    if [[ "$current_mode" == "history" ]]; then
+        echo "reload($SELF_BIN list-raw toggle-history)+wait+pos(1)"
+    else
+        local target_pos
+        target_pos=$(get_history_cursor_pos)
+        echo "reload($SELF_BIN list-raw toggle-history)+wait+pos($target_pos)"
+    fi
+}
+
 
 cheat_sheet() {
     printf '\033[2J\033[H'
@@ -1260,7 +1356,7 @@ cheat_sheet() {
   │ View Controls:                                              │
   │   Ctrl-b       Toggle Attention Hub <-> All Panes (Go-To)   │
   │   Ctrl-s       Toggle Sessionizer (Workspaces)              │
-  │   Ctrl-h       Toggle Jump History (Recent locations)       │
+  │   Ctrl-h       Toggle Jump History Timeline (FWD/CUR/BACK)  │
   │                                                             │
   │ History Actions:                                            │
   │   Ctrl-x       Clear jump history stack                     │
@@ -1407,6 +1503,11 @@ list_bookmarks() {
     if [[ -n "${TMUX_GLANCE_FZF_FILTER:-}" ]]; then
         fzf_extra_args+=(--filter="$TMUX_GLANCE_FZF_FILTER")
     fi
+    if [[ "$initial_mode" == "history" ]]; then
+        local init_pos
+        init_pos=$(get_history_cursor_pos)
+        fzf_extra_args+=(--bind "load:pos($init_pos)")
+    fi
 
     # shellcheck disable=SC2016
     local selected
@@ -1419,10 +1520,10 @@ list_bookmarks() {
         --layout=reverse \
         --border=rounded \
         --info=inline \
-        --bind "ctrl-b:reload($SELF_BIN list-raw toggle)" \
-        --bind "ctrl-s:reload($SELF_BIN list-raw toggle-sessions)" \
-        --bind "ctrl-h:reload($SELF_BIN list-raw toggle-history)" \
-        --bind "ctrl-x:execute($SELF_BIN clear-history)+reload($SELF_BIN list-raw current)" \
+        --bind "ctrl-b:reload($SELF_BIN list-raw toggle)+wait+pos(1)" \
+        --bind "ctrl-s:reload($SELF_BIN list-raw toggle-sessions)+wait+pos(1)" \
+        --bind "ctrl-h:transform($SELF_BIN eval-history-action)" \
+        --bind "ctrl-x:execute($SELF_BIN clear-history)+reload($SELF_BIN list-raw current)+wait+pos(1)" \
         --bind "ctrl-p:execute($SELF_BIN pin-interactive {2})+reload($SELF_BIN list-raw current)" \
         --bind "ctrl-/:execute($SELF_BIN cheat-sheet)" \
         --bind "f1:execute($SELF_BIN cheat-sheet)" \
@@ -1433,6 +1534,10 @@ list_bookmarks() {
     if [[ -n "$selected" ]]; then
         local target
         target=$(echo "$selected" | cut -f2)
+        if [[ -n "$target" && "$target" == "$source_pane" ]]; then
+            # Selected current active pane (safe no-op)
+            return 0
+        fi
         if [[ -n "$target" ]] && tmux has-session -t "$target" 2>/dev/null; then
             if [[ "$target" =~ ^% ]]; then
                 record_jump "$source_pane" "$target"
@@ -1535,12 +1640,18 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
             shift || true
             with_lock clear_history
             ;;
+        eval-history-action)
+            eval_history_action
+            ;;
+        history-cursor-pos)
+            get_history_cursor_pos
+            ;;
         list)
             shift || true
             list_bookmarks "${1:-auto}" "${2:-}"
             ;;
         *)
-            echo "Usage: $0 {add|remove|toggle-vigil|is-watched|scan|on-focus|status|preview|list-raw|list-all|list-sessions|list-history|list|assign-slot|unassign-slot|jump-slot|pin-interactive|cheat-sheet|jump-back|jump-forward|record-jump|clear-history}"
+            echo "Usage: $0 {add|remove|toggle-vigil|is-watched|scan|on-focus|status|preview|list-raw|list-all|list-sessions|list-history|list|assign-slot|unassign-slot|jump-slot|pin-interactive|cheat-sheet|jump-back|jump-forward|record-jump|clear-history|eval-history-action|history-cursor-pos}"
             exit 1
             ;;
     esac

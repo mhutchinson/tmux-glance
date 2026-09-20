@@ -40,13 +40,13 @@ tmux -S "$SOCK" new-window -t test-sess -n win3 "cat"
 pane3=$(tmux -S "$SOCK" list-panes -t test-sess:win3 -F '#{pane_id}')
 echo "PASS (Panes: $pane1, $pane2, $pane3)"
 
-# 2. Empty jump list initially
-echo -n "Test 2: Empty jump list outputs quiet empty placeholder... "
+# 2. Empty jump list initially shows current active pane
+echo -n "Test 2: Empty jump list outputs current active pane as CUR... "
 res=$(glance_run list-raw history)
-if [[ "$res" =~ "🕒 Empty" && "$res" =~ "No jump history recorded yet" ]]; then
+if [[ "$res" == *"📍 CUR"* && "$res" == *"$pane3"* ]]; then
     echo "PASS"
 else
-    echo "FAIL: Expected empty placeholder, got: $res"
+    echo "FAIL: Expected current pane as CUR, got: $res"
     exit 1
 fi
 
@@ -96,9 +96,9 @@ else
 fi
 
 # 7. Formatted history list output
-echo -n "Test 7: list-raw history formats live panes with metadata and preview target... "
+echo -n "Test 7: list-raw history formats unified timeline (CUR, BACK #1, BACK #2)... "
 hist_out=$(glance_run list-raw history)
-if [[ "$hist_out" == *"🕒 Jump #1"* && "$hist_out" == *"🕒 Jump #2"* && "$hist_out" == *"$pane2"* && "$hist_out" == *"$pane1"* ]]; then
+if [[ "$hist_out" == *"📍 CUR"* && "$hist_out" == *"⏮️  BACK #1"* && "$hist_out" == *"⏮️  BACK #2"* && "$hist_out" == *"$pane2"* && "$hist_out" == *"$pane1"* ]]; then
     echo "PASS"
 else
     echo "FAIL: Formatted history output missing expected entries: $hist_out"
@@ -193,7 +193,7 @@ else
 fi
 
 # 15. Stack clearing (clear-history)
-echo -n "Test 15: clear-history empties both stacks and updates raw listing... "
+echo -n "Test 15: clear-history empties both stacks and retains CUR... "
 printf "%s\n" "$pane1" >> "$TMUX_GLANCE_JUMP_BACK_FILE"
 printf "%s\n" "$pane4" >> "$TMUX_GLANCE_JUMP_FORWARD_FILE"
 glance_run clear-history
@@ -202,10 +202,80 @@ if [[ -s "$TMUX_GLANCE_JUMP_BACK_FILE" || -s "$TMUX_GLANCE_JUMP_FORWARD_FILE" ]]
     exit 1
 fi
 hist_raw=$(glance_run list-raw history)
-if [[ "$hist_raw" != *"No jump history recorded yet"* ]]; then
-    echo "FAIL: Expected empty history message, got: $hist_raw"
+if [[ "$hist_raw" != *"📍 CUR"* ]]; then
+    echo "FAIL: Expected CUR entry after clear, got: $hist_raw"
     exit 1
 fi
 echo "PASS"
 
+# 16. Unified Timeline with Forward, Current, and Back entries
+echo -n "Test 16: Unified timeline correctly orders FWD above CUR above BACK... "
+tmux -S "$SOCK" select-window -t test-sess:win1
+printf "%s\n" "$pane4" > "$TMUX_GLANCE_JUMP_FORWARD_FILE"
+printf "%s\n" "$pane3" > "$TMUX_GLANCE_JUMP_BACK_FILE"
+timeline_raw=$(glance_run list-raw history)
+fwd_line=$(echo "$timeline_raw" | grep "FWD #1" || true)
+cur_line=$(echo "$timeline_raw" | grep "CUR" || true)
+back_line=$(echo "$timeline_raw" | grep "BACK #1" || true)
+if [[ -z "$fwd_line" || -z "$cur_line" || -z "$back_line" ]]; then
+    echo "FAIL: Missing timeline components: $timeline_raw"
+    exit 1
+fi
+# Check vertical ordering (FWD before CUR before BACK)
+fwd_pos=$(echo "$timeline_raw" | grep -n "FWD #1" | cut -d: -f1)
+cur_pos=$(echo "$timeline_raw" | grep -n "CUR" | cut -d: -f1)
+back_pos=$(echo "$timeline_raw" | grep -n "BACK #1" | cut -d: -f1)
+if [[ "$fwd_pos" -lt "$cur_pos" && "$cur_pos" -lt "$back_pos" ]]; then
+    echo "PASS (FWD at $fwd_pos, CUR at $cur_pos, BACK at $back_pos)"
+else
+    echo "FAIL: Incorrect vertical timeline ordering (FWD=$fwd_pos, CUR=$cur_pos, BACK=$back_pos)"
+    exit 1
+fi
+
+# 17. Cursor Position Arithmetic (get_history_cursor_pos)
+echo -n "Test 17: Cursor position targets BACK #1 when available, else FWD #1, else CUR... "
+# With 1 FWD and 1 BACK: target should be line 3 (BACK #1)
+cpos=$(glance_run history-cursor-pos)
+if [[ "$cpos" -ne 3 ]]; then
+    echo "FAIL: Expected cursor pos 3 for BACK #1, got $cpos"
+    exit 1
+fi
+# With only FWD (no BACK): target should be line 1 (FWD #1)
+: > "$TMUX_GLANCE_JUMP_BACK_FILE"
+cpos_fwd=$(glance_run history-cursor-pos)
+if [[ "$cpos_fwd" -ne 1 ]]; then
+    echo "FAIL: Expected cursor pos 1 for FWD #1, got $cpos_fwd"
+    exit 1
+fi
+# With clean slate (no FWD and no BACK): target should be line 1 (CUR)
+: > "$TMUX_GLANCE_JUMP_FORWARD_FILE"
+cpos_cur=$(glance_run history-cursor-pos)
+if [[ "$cpos_cur" -ne 1 ]]; then
+    echo "FAIL: Expected cursor pos 1 for CUR, got $cpos_cur"
+    exit 1
+fi
+echo "PASS"
+
+# 18. Interactive FZF history navigation and CUR no-op
+echo -n "Test 18: Interactive history starts on BACK #1 and pressing Enter on CUR is a safe no-op... "
+printf "%s\n" "$pane4" > "$TMUX_GLANCE_JUMP_FORWARD_FILE"
+printf "%s\n" "$pane3" > "$TMUX_GLANCE_JUMP_BACK_FILE"
+tmux -S "$SOCK" select-window -t test-sess:win1
+tmux -S "$SOCK" new-window -t test-sess -n test-fzf "env TMUX_GLANCE_DIR='$TMP_DIR' TMUX_GLANCE_JUMP_BACK_FILE='$TMP_DIR/jump_back' TMUX_GLANCE_JUMP_FORWARD_FILE='$TMP_DIR/jump_forward' $BIN list-history; sleep 1"
+sleep 0.5
+# Send Up to move from BACK #1 to CUR, then Enter to select CUR
+tmux -S "$SOCK" send-keys -t test-sess:test-fzf "Up"
+sleep 0.2
+tmux -S "$SOCK" send-keys -t test-sess:test-fzf "Enter"
+sleep 0.4
+active_p=$(tmux -S "$SOCK" display-message -p -t test-sess:win1 '#{pane_id}')
+if [[ "$active_p" == "$pane1" ]]; then
+    echo "PASS"
+else
+    echo "FAIL: Expected active pane to remain $pane1, got $active_p"
+    exit 1
+fi
+tmux -S "$SOCK" kill-window -t test-sess:test-fzf 2>/dev/null || true
+
 echo "All jumplist tests passed successfully!"
+
