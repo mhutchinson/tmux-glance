@@ -1200,6 +1200,13 @@ jump_forward() {
     tmux display-message "Jumped forward to [${loc}]" 2>/dev/null || true
 }
 
+clear_history() {
+    mkdir -p "$(dirname "$JUMP_BACK_FILE")" 2>/dev/null || true
+    : > "$JUMP_BACK_FILE"
+    : > "$JUMP_FORWARD_FILE"
+    tmux display-message "Jump history cleared" 2>/dev/null || true
+}
+
 get_history_list() {
     local count=0
     if [[ -f "$JUMP_BACK_FILE" ]]; then
@@ -1254,6 +1261,9 @@ cheat_sheet() {
   │   Ctrl-b       Toggle Attention Hub <-> All Panes (Go-To)   │
   │   Ctrl-s       Toggle Sessionizer (Workspaces)              │
   │   Ctrl-h       Toggle Jump History (Recent locations)       │
+  │                                                             │
+  │ History Actions:                                            │
+  │   Ctrl-x       Clear jump history stack                     │
   │                                                             │
   │ Session Actions:                                            │
   │   Ctrl-p       Pin / Unpin highlighted session (h/j/k/l)    │
@@ -1405,13 +1415,14 @@ list_bookmarks() {
         --delimiter=$'\t' \
         --with-nth=1 \
         --ansi \
-        --header="👁️ tmux-glance (Ctrl-s: Sessions | Ctrl-b: View | Ctrl-h: History | Ctrl-p: Pin | Ctrl-/: Help | Enter: Jump)" \
+        --header="👁️ tmux-glance (Ctrl-s: Sessions | Ctrl-b: View | Ctrl-h: History | Ctrl-p: Pin | Ctrl-x: Clear | Ctrl-/: Help | Enter: Jump)" \
         --layout=reverse \
         --border=rounded \
         --info=inline \
         --bind "ctrl-b:reload($SELF_BIN list-raw toggle)" \
         --bind "ctrl-s:reload($SELF_BIN list-raw toggle-sessions)" \
         --bind "ctrl-h:reload($SELF_BIN list-raw toggle-history)" \
+        --bind "ctrl-x:execute($SELF_BIN clear-history)+reload($SELF_BIN list-raw current)" \
         --bind "ctrl-p:execute($SELF_BIN pin-interactive {2})+reload($SELF_BIN list-raw current)" \
         --bind "ctrl-/:execute($SELF_BIN cheat-sheet)" \
         --bind "f1:execute($SELF_BIN cheat-sheet)" \
@@ -1520,12 +1531,16 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
             shift || true
             with_lock record_jump "${1:-}" "${2:-}"
             ;;
+        clear-history|clear-jump-history)
+            shift || true
+            with_lock clear_history
+            ;;
         list)
             shift || true
             list_bookmarks "${1:-auto}" "${2:-}"
             ;;
         *)
-            echo "Usage: $0 {add|remove|toggle-vigil|is-watched|scan|on-focus|status|preview|list-raw|list-all|list-sessions|list-history|list|assign-slot|unassign-slot|jump-slot|pin-interactive|cheat-sheet|jump-back|jump-forward|record-jump}"
+            echo "Usage: $0 {add|remove|toggle-vigil|is-watched|scan|on-focus|status|preview|list-raw|list-all|list-sessions|list-history|list|assign-slot|unassign-slot|jump-slot|pin-interactive|cheat-sheet|jump-back|jump-forward|record-jump|clear-history}"
             exit 1
             ;;
     esac

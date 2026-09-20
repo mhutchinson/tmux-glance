@@ -79,6 +79,7 @@ With one keystroke (`prefix b`), open the **Attention Hub** popup to see only th
 > * `Ctrl-b` — Toggle instantly between the Attention Hub and All Panes (Go-To).
 > * `Ctrl-s` — Switch to the Sessionizer to search and jump between active tmux sessions with ambient status badges.
 > * `Ctrl-h` — Switch to Jump History to browse recent jump locations chronologically with live previews.
+> * `Ctrl-x` — Clear the jump history stack (useful for context switches or privacy).
 > * `Ctrl-p` — Pin / unpin highlighted session to a Harpoon slot (`h`, `j`, `k`, `l`). *(Note: badge renders on next cursor movement `Up`/`Down`)*.
 > * `Ctrl-/` / `F1` — Open the in-modal cheat sheet overlay.
 > * `Enter` — Teleport straight into the selected pane or session.
@@ -308,7 +309,7 @@ Pin your top 4 projects to instant 1-chord shortcuts:
 
 ### 3. Jump History & Jumplist Backtracking
 Traverse seamlessly back and forth between recent panes across all sessions without losing context:
-* **In-Modal History (`Ctrl-h`):** From inside the Glance popup, press `Ctrl-h` to view recent jump destinations chronologically with live previews, and press `Enter` to jump back to any previous pane.
+* **In-Modal History (`Ctrl-h`):** From inside the Glance popup, press `Ctrl-h` to view recent jump destinations chronologically with live previews, and press `Enter` to jump back to any previous pane. Press `Ctrl-x` inside the modal (or run `tmux-glance clear-history` via CLI) to wipe the jump history stack cleanly when switching contexts or clearing state.
 * **Instant Keyboard Undo/Redo (Tier 2 Opt-in):** Enable `enableJumplist = true;` (`@glance_enable_jumplist 'on'`) to get direct chord navigation:
   * `prefix C-z` — Instant single-chord jump back (undo last jump; safely replaces tmux's default `suspend-client`).
   * `prefix C-y` — Instant single-chord jump forward (redo).

@@ -192,4 +192,20 @@ else
     exit 1
 fi
 
+# 15. Stack clearing (clear-history)
+echo -n "Test 15: clear-history empties both stacks and updates raw listing... "
+printf "%s\n" "$pane1" >> "$TMUX_GLANCE_JUMP_BACK_FILE"
+printf "%s\n" "$pane4" >> "$TMUX_GLANCE_JUMP_FORWARD_FILE"
+glance_run clear-history
+if [[ -s "$TMUX_GLANCE_JUMP_BACK_FILE" || -s "$TMUX_GLANCE_JUMP_FORWARD_FILE" ]]; then
+    echo "FAIL: Expected empty jump stack files"
+    exit 1
+fi
+hist_raw=$(glance_run list-raw history)
+if [[ "$hist_raw" != *"No jump history recorded yet"* ]]; then
+    echo "FAIL: Expected empty history message, got: $hist_raw"
+    exit 1
+fi
+echo "PASS"
+
 echo "All jumplist tests passed successfully!"
