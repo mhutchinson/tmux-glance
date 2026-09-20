@@ -316,6 +316,9 @@ Traverse seamlessly back and forth between recent panes across all sessions with
   * `prefix -r u` — Repeatable backward walk (tap `prefix u u u` to rewind multiple jumps within tmux's repeat window).
   * `prefix -r U` — Repeatable forward walk.
 
+> [!NOTE]
+> **Known Limitation (Issue #2)**: Direct keyboard chords (`prefix C-z` / `prefix C-y` / `prefix -r u` / `U`) shift the active frame between undo and redo stacks without discarding history. Selecting a past pane from within the interactive History popup (`Ctrl-h`) currently treats the selection as a new jump (wiping the forward redo stack). Frame-shifting from within the modal is tracked in [Issue #2](https://github.com/mhutchinson/tmux-glance/issues/2).
+
 ---
 
 ### 4. Command Routing & Disabling Sentinels

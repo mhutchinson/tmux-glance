@@ -217,6 +217,7 @@ Global navigation chords, jumplist rewinds, and queue cycling can collide with p
 * **v0.7 Jump History & Backtracking Jumplist:**
   - Implemented dual back/forward traversal stack (`jump-back` / `jump-forward`) with liveness verification.
   - In-modal history inspector (`Ctrl-h`) in viewfinder with live pane previewing and fast teleportation.
+  - Unified vertical timeline (`FWD` above `CUR` above `BACK`) with dynamic FZF cursor positioning on `BACK #1` and safe no-op on `CUR`. Frame-shifting from within the modal is tracked in Issue #2.
   - Tier 2 opt-in direct keyboard backtracking chords (`prefix C-z`, `prefix C-y`, repeatable `prefix -r u`, `prefix -r U`).
 * **v0.6 In-Dashboard Sessionizer & Harpoon Slots:**
   - Integrated tmux session navigation directly into the Glance popup (`Ctrl-s`).
