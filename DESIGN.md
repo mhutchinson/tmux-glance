@@ -25,7 +25,7 @@ As terminal workflows transition from synchronous shell commands to autonomous, 
 3. **Sub-50ms Status Bar Execution Budget:** `tmux-glance status` runs synchronously inside `status-right` on tmux's `status-interval`. It must execute in `< 50ms`. Zero network requests or heavy subshell pipelines are permitted. All external telemetry (such as API quotas or saturation gauges) must read pre-warmed local cache files written asynchronously out-of-band.
 4. **Pluggable Sentinels:** Agent TUIs and process monitors are decoupled behind a clean, pluggable Sentinel interface (`matches`, `classify`, `fingerprint`), enabling modular support for diverse agents without core multiplexer entanglement.
 5. **Intelligent Thought & Spinner Normalization:** Sentinels strip transient visual noise—such as animated braille spinners (`[⣟⣯⣷]`) and streaming thought indicators—before computing buffer fingerprints, eliminating false-positive unread alarms.
-6. **Zero-Friction Auto-Acknowledgment:** Merely switching focus into an alerted pane acknowledges and clears the alert. (Note: Rapid navigation dwell-time suppression to protect unread alerts while cycling past is scheduled for milestone v0.10 alongside quickfix cycling).
+6. **Zero-Friction Auto-Acknowledgment:** Merely switching focus into an alerted pane acknowledges and clears the alert. (Note: Rapid navigation dwell-time suppression to protect unread alerts while cycling past is scheduled for milestone v0.8 alongside quickfix cycling).
 7. **Rock-Solid Concurrency & Atomicity:** Atomic directory locking (`.lock` via `mkdir`) and temporary file renames (`mv`) protect state across concurrent tmux status redraws, window switches, and hook triggers.
 8. **Cross-Platform POSIX Portability:** Scripts and tests run seamlessly on Darwin (macOS BSD coreutils, `md5`) and Linux (GNU coreutils, `md5sum`).
 
@@ -198,9 +198,9 @@ Global navigation chords, jumplist rewinds, and queue cycling can collide with p
 | Keybinding | Scope | Feature | Config Option |
 | :--- | :--- | :--- | :--- |
 | `prefix -r C-h/j/k/l` | Global | **Harpoon Session Jump** | `@glance_enable_harpoon 'on'` (`enableHarpoon = true`) |
-| `prefix C-z` / `prefix C-y` | Global | **Jumplist Undo/Redo** (v0.8) | `@glance_enable_jumplist 'on'` |
-| `prefix -r u` / `prefix -r U` | Global | **Repeatable History Walk** (v0.8) | `@glance_enable_jumplist 'on'` |
-| `prefix -r ]` / `prefix -r [` | Global | **Quickfix Alert Cycling** (v0.10) | `@glance_enable_quickfix 'on'` |
+| `prefix C-z` / `prefix C-y` | Global | **Jumplist Undo/Redo** (v0.7) | `@glance_enable_jumplist 'on'` |
+| `prefix -r u` / `prefix -r U` | Global | **Repeatable History Walk** (v0.7) | `@glance_enable_jumplist 'on'` |
+| `prefix -r ]` / `prefix -r [` | Global | **Quickfix Alert Cycling** (v0.8) | `@glance_enable_quickfix 'on'` |
 
 *Note: Users who do not opt into Tier 2 bindings still have 100% access to history, sessions, and navigation features from inside the popup dashboard (`Ctrl-h`, `Ctrl-s`, `Ctrl-p`, etc.) without polluting their global prefix table.*
 
@@ -235,9 +235,7 @@ Global navigation chords, jumplist rewinds, and queue cycling can collide with p
 
 ## 8. Future Roadmap & Explorations
 
-* **Hierarchy Telescoping (`Ctrl-w` / `Ctrl-p`):**
-  - Quick-switch views to search across all open windows (`Ctrl-w`) or all active panes (`Ctrl-p`) across the server, transforming Glance into a universal tmux teleporter.
-* **Jump History & Backtracking Jumplist (`Ctrl-h` / Undo-Redo):**
+* **v0.7: Jump History & Backtracking Jumplist (`Ctrl-h` / Undo-Redo):**
   - Maintain a dual back/forward traversal stack (`jump-back` / `jump-forward`) similar to Vim's `<C-o>` / `<C-i>` or browser navigation:
     - **Normal Jump:** Push source pane to Back stack, clear Forward stack, switch to destination.
     - **Jump Back (Undo):** Pop target from Back stack, push current pane to Forward stack, switch to target.
@@ -247,13 +245,7 @@ Global navigation chords, jumplist rewinds, and queue cycling can collide with p
     - `prefix C-z` (Undo) & `prefix C-y` / `prefix C-Z` (Redo) for instant single-chord backtracking (safely replacing the dangerous default tmux `suspend-client` on `C-z`).
     - Repeatable bindings via `bind-key -r u` (Undo) and `bind-key -r U` (Redo), allowing multi-hop rewinds by tapping `u u u` within the tmux `repeat-time` window without re-pressing `prefix`.
   - **Visual Traversal Inspector (`Ctrl-h` in fzf):** Pressing `Ctrl-h` within the Glance popup opens a chronological list of recent jump locations with live previews.
-* **Global Agent Quotas & Saturation Gauges (`sentinel_<name>_gauge`):**
-  - Allow sentinels to optionally contribute a single, global capacity or quota gauge (e.g. LLM API token quota, hourly request limits, or harness saturation).
-  - **Threshold Visibility Rule:** Quota gauges only appear in `status-right` when depleted below **20%** (e.g. `#[fg=#fab387]🪫 18%#[default]`, escalating to `#[fg=#f38ba8,bold]⚠️ 4%#[default]`). When >20%, `status-right` remains completely quiet and uncluttered.
-  - **Always Visible in Dashboard:** The Glance Viewfinder (`prefix g` / `prefix b`) always displays the gauge in the header/telemetry bar regardless of level so developers can check capacity at any time.
-  - **Strictly Global (No Per-Pane Churn):** Limit of 1 global gauge per harness. Progress bars or multi-terminal metrics are disallowed in this slot to prevent status bar churn and visual clutter.
-  - **Asynchronous Local Cache Invariant:** Gauges must **never** make synchronous HTTP or CLI queries inside `status-right` polling (must read a local cache file written out-of-band by a daemon, hook, or background task to preserve the <50ms status budget). Pilot with `sentinel_antigravity` first.
-* **Quickfix Attention Cycling & Queue HUD (`prefix -r ]` / `prefix -r [`):**
+* **v0.8: Quickfix Attention Cycling & Queue HUD (`prefix -r ]` / `prefix -r [`):**
   - Instant Vim-quickfix-style navigation (`:cnext` / `:cprev`) cycling through all panes currently contributing active icons to `status-right`.
   - **Strict Deterministic Queue Ordering:**
     1. *Primary Sort (Severity Rank):* Alerts (`🚨`) > Blocked Agents (`🤖 ⏳`) > Finished Tasks (`🤖 ✓`).
@@ -276,5 +268,15 @@ Global navigation chords, jumplist rewinds, and queue cycling can collide with p
   - **Dwell-Time Auto-Ack Protection ("The Whiz-Past Invariant"):**
     - Rapidly stepping past panes suppresses the `pane-focus-in` auto-acknowledgment hook.
     - An alert is only cleared once cycling ceases (repeatable timer expires and user remains dwell-focused on the pane) or upon explicit user interaction in the pane, preventing accidental dismissal of unread alerts.
+* **v0.9: Global Agent Quotas & Saturation Gauges (`sentinel_<name>_gauge`):**
+  - Allow sentinels to optionally contribute a single, global capacity or quota gauge (e.g. LLM API token quota, hourly request limits, or harness saturation).
+  - **Threshold Visibility Rule:** Quota gauges only appear in `status-right` when depleted below **20%** (e.g. `#[fg=#fab387]🪫 18%#[default]`, escalating to `#[fg=#f38ba8,bold]⚠️ 4%#[default]`). When >20%, `status-right` remains completely quiet and uncluttered.
+  - **Always Visible in Dashboard:** The Glance Viewfinder (`prefix g` / `prefix b`) always displays the gauge in the header/telemetry bar regardless of level so developers can check capacity at any time.
+  - **Strictly Global (No Per-Pane Churn):** Limit of 1 global gauge per harness. Progress bars or multi-terminal metrics are disallowed in this slot to prevent status bar churn and visual clutter.
+  - **Asynchronous Local Cache Invariant:** Gauges must **never** make synchronous HTTP or CLI queries inside `status-right` polling (must read a local cache file written out-of-band by a daemon, hook, or background task to preserve the <50ms status budget). Pilot with `sentinel_antigravity` first.
+* **v1.0: Production Hardening, Dogfooding & Polish:**
+  - Comprehensive real-world dogfooding across multi-monitor, high-churn, and nested tmux setups.
+  - Edge-case hardening (unusual terminal dimensions, window resizing during active popups, high-latency SSH clients).
+  - Configuration stability freeze, documentation audit, and release packaging.
 
 

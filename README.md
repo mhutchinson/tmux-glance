@@ -395,10 +395,10 @@ just gh-issues
 
 ### Upcoming Roadmap
 
-- [ ] **v0.7: Hierarchy Telescoping (`Ctrl-w` / `Ctrl-p`)** — Expand picker scope to search across all open windows (`Ctrl-w`) or all active panes (`Ctrl-p`) across the server, creating a unified navigation hub.
-- [ ] **v0.8: Jump History & Jumplist Backtracking (`Ctrl-h` / Undo-Redo)** — Dual Back/Forward jump stack for seamless pane navigation. Full in-viewer history stack (`Ctrl-h`), with opt-in instant undo/redo chords (`prefix C-z` / `prefix C-y` or repeatable `prefix -r u` / `U`) to jump straight back without opening a menu.
+- [ ] **v0.7: Jump History & Jumplist Backtracking (`Ctrl-h` / Undo-Redo)** — Dual Back/Forward jump stack for seamless pane navigation across sessions. Full in-viewer history stack (`Ctrl-h`), with opt-in instant undo/redo chords (`prefix C-z` / `prefix C-y` or repeatable `prefix -r u` / `U`) to jump straight back without opening a menu.
+- [ ] **v0.8: Quickfix Attention Cycling & Queue HUD (`prefix -r ]` / `prefix -r [`)** — Vim quickfix-style cycling directly through panes contributing active status icons. Opt-in repeatable `[` and `]` navigation with a docked mini-queue HUD / status overlay and dwell-time auto-ack suppression to avoid dismissing alerts while whizzing past.
 - [ ] **v0.9: Global Agent Quotas & Saturation Gauges** — Sentinel capacity/quota hook (`sentinel_<name>_gauge`). Kept quiet in `status-right` until capacity drops below 20% (escalating to warning colors), always visible in the dashboard header, strictly backed by asynchronous local cache.
-- [ ] **v0.10: Quickfix Attention Cycling & Queue HUD (`prefix -r ]` / `prefix -r [`)** — Vim quickfix-style cycling directly through panes contributing active status icons. Opt-in repeatable `[` and `]` navigation with a docked mini-queue HUD / status overlay and dwell-time auto-ack suppression to avoid dismissing alerts while whizzing past.
+- [ ] **v1.0: Production Hardening, Dogfooding & Polish** — End-to-end edge-case hardening across diverse terminal dimensions and nested tmux workflows, full dogfooding cycle, documentation polish, and config contract freeze.
 
 ---
 
