@@ -214,6 +214,10 @@ Global navigation chords, jumplist rewinds, and queue cycling can collide with p
 
 ## 7. Design Evolution Log
 
+* **v0.7 Jump History & Backtracking Jumplist:**
+  - Implemented dual back/forward traversal stack (`jump-back` / `jump-forward`) with liveness verification.
+  - In-modal history inspector (`Ctrl-h`) in viewfinder with live pane previewing and fast teleportation.
+  - Tier 2 opt-in direct keyboard backtracking chords (`prefix C-z`, `prefix C-y`, repeatable `prefix -r u`, `prefix -r U`).
 * **v0.6 In-Dashboard Sessionizer & Harpoon Slots:**
   - Integrated tmux session navigation directly into the Glance popup (`Ctrl-s`).
   - Ambient badge aggregation computes per-workspace telemetry (`🚨 1`, `🤖 ⏳ 1`, `👁️ 2`).
@@ -235,16 +239,6 @@ Global navigation chords, jumplist rewinds, and queue cycling can collide with p
 
 ## 8. Future Roadmap & Explorations
 
-* **v0.7: Jump History & Backtracking Jumplist (`Ctrl-h` / Undo-Redo):**
-  - Maintain a dual back/forward traversal stack (`jump-back` / `jump-forward`) similar to Vim's `<C-o>` / `<C-i>` or browser navigation:
-    - **Normal Jump:** Push source pane to Back stack, clear Forward stack, switch to destination.
-    - **Jump Back (Undo):** Pop target from Back stack, push current pane to Forward stack, switch to target.
-    - **Jump Forward (Redo):** Pop target from Forward stack, push current pane to Back stack, switch to target.
-    - **Liveness Invariant:** Silently discard stale/dead panes when popping before switching.
-  - **Instant Keyboard Traversal (Tier 2 Opt-in, No Menu Required):**
-    - `prefix C-z` (Undo) & `prefix C-y` / `prefix C-Z` (Redo) for instant single-chord backtracking (safely replacing the dangerous default tmux `suspend-client` on `C-z`).
-    - Repeatable bindings via `bind-key -r u` (Undo) and `bind-key -r U` (Redo), allowing multi-hop rewinds by tapping `u u u` within the tmux `repeat-time` window without re-pressing `prefix`.
-  - **Visual Traversal Inspector (`Ctrl-h` in fzf):** Pressing `Ctrl-h` within the Glance popup opens a chronological list of recent jump locations with live previews.
 * **v0.8: Quickfix Attention Cycling & Queue HUD (`prefix -r ]` / `prefix -r [`):**
   - Instant Vim-quickfix-style navigation (`:cnext` / `:cprev`) cycling through all panes currently contributing active icons to `status-right`.
   - **Strict Deterministic Queue Ordering:**

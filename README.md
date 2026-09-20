@@ -78,6 +78,7 @@ With one keystroke (`prefix b`), open the **Attention Hub** popup to see only th
 > **Inside the Viewfinder Popup:**
 > * `Ctrl-b` — Toggle instantly between the Attention Hub and All Panes (Go-To).
 > * `Ctrl-s` — Switch to the Sessionizer to search and jump between active tmux sessions with ambient status badges.
+> * `Ctrl-h` — Switch to Jump History to browse recent jump locations chronologically with live previews.
 > * `Ctrl-p` — Pin / unpin highlighted session to a Harpoon slot (`h`, `j`, `k`, `l`). *(Note: badge renders on next cursor movement `Up`/`Down`)*.
 > * `Ctrl-/` / `F1` — Open the in-modal cheat sheet overlay.
 > * `Enter` — Teleport straight into the selected pane or session.
@@ -269,6 +270,9 @@ programs.tmux-glance = {
 
   # Enable Tier 2 Harpoon fast-jump chords (prefix C-h, C-j, C-k, C-l):
   enableHarpoon = true;
+
+  # Enable Tier 2 Jumplist backtrack chords (prefix C-z, C-y, and repeatable prefix -r u, U):
+  enableJumplist = true;
 };
 ```
 
@@ -286,6 +290,9 @@ set -g @glance_popup_height '75%'
 
 # Enable Tier 2 Harpoon fast-jump chords (prefix C-h, C-j, C-k, C-l):
 set -g @glance_enable_harpoon 'on'
+
+# Enable Tier 2 Jumplist backtrack chords (prefix C-z, C-y, -r u, -r U):
+set -g @glance_enable_jumplist 'on'
 ```
 
 ---
@@ -299,7 +306,18 @@ Pin your top 4 projects to instant 1-chord shortcuts:
 
 ---
 
-### 3. Command Routing & Disabling Sentinels
+### 3. Jump History & Jumplist Backtracking
+Traverse seamlessly back and forth between recent panes across all sessions without losing context:
+* **In-Modal History (`Ctrl-h`):** From inside the Glance popup, press `Ctrl-h` to view recent jump destinations chronologically with live previews, and press `Enter` to jump back to any previous pane.
+* **Instant Keyboard Undo/Redo (Tier 2 Opt-in):** Enable `enableJumplist = true;` (`@glance_enable_jumplist 'on'`) to get direct chord navigation:
+  * `prefix C-z` — Instant single-chord jump back (undo last jump; safely replaces tmux's default `suspend-client`).
+  * `prefix C-y` — Instant single-chord jump forward (redo).
+  * `prefix -r u` — Repeatable backward walk (tap `prefix u u u` to rewind multiple jumps within tmux's repeat window).
+  * `prefix -r U` — Repeatable forward walk.
+
+---
+
+### 4. Command Routing & Disabling Sentinels
 
 `tmux-glance` decouples sentinel implementations from command names through an **$O(1)$ Command Routing Table**.
 
@@ -392,10 +410,10 @@ just gh-issues
 - [x] **v0.4: Standalone Flake & Pluggable Sentinels** — Standalone flake with Apache 2.0 license, modular sentinels (`antigravity`, `generic`), thinking spinner normalizer, $O(1)$ command routing table (`routes`), Home Manager module, and cross-platform GitHub Actions CI.
 - [x] **v0.5: Active Real-Time Tailing & Viewfinder Pinning** — Real-time 500ms diff-hashing preview tailing and bottom viewport locking (`:follow`) for live prompt and build tracking.
 - [x] **v0.6: In-Dashboard Sessionizer (`Ctrl-s`)** — Search and switch tmux sessions directly within the Glance dashboard, complete with ambient status badge summaries (`🚨 1`, `🤖 ⏳ 1`, `👁️ 2`) representing the state of each workspace.
+- [x] **v0.7: Jump History & Jumplist Backtracking (`Ctrl-h` / Undo-Redo)** — Dual Back/Forward jump stack for seamless pane navigation across sessions. Full in-viewer history stack (`Ctrl-h`), with opt-in instant undo/redo chords (`prefix C-z` / `prefix C-y` or repeatable `prefix -r u` / `U`) to jump straight back without opening a menu.
 
 ### Upcoming Roadmap
 
-- [ ] **v0.7: Jump History & Jumplist Backtracking (`Ctrl-h` / Undo-Redo)** — Dual Back/Forward jump stack for seamless pane navigation across sessions. Full in-viewer history stack (`Ctrl-h`), with opt-in instant undo/redo chords (`prefix C-z` / `prefix C-y` or repeatable `prefix -r u` / `U`) to jump straight back without opening a menu.
 - [ ] **v0.8: Quickfix Attention Cycling & Queue HUD (`prefix -r ]` / `prefix -r [`)** — Vim quickfix-style cycling directly through panes contributing active status icons. Opt-in repeatable `[` and `]` navigation with a docked mini-queue HUD / status overlay and dwell-time auto-ack suppression to avoid dismissing alerts while whizzing past.
 - [ ] **v0.9: Global Agent Quotas & Saturation Gauges** — Sentinel capacity/quota hook (`sentinel_<name>_gauge`). Kept quiet in `status-right` until capacity drops below 20% (escalating to warning colors), always visible in the dashboard header, strictly backed by asynchronous local cache.
 - [ ] **v1.0: Production Hardening, Dogfooding & Polish** — End-to-end edge-case hardening across diverse terminal dimensions and nested tmux workflows, full dogfooding cycle, documentation polish, and config contract freeze.

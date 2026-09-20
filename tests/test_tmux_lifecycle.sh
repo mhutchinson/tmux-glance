@@ -405,7 +405,7 @@ echo -n "Test 20: In-Modal Cheat Sheet outputs clean modal-only shortcuts... "
 rm -f "$STATUS_FILE"
 echo "" | bash "$BIN" cheat-sheet > "$STATUS_FILE" 2>&1 || true
 cheat_out=$(cat "$STATUS_FILE")
-if [[ "$cheat_out" =~ "tmux-glance Viewfinder" ]] && [[ "$cheat_out" =~ "Ctrl-p" ]] && [[ "$cheat_out" =~ "Ctrl-s" ]] && [[ "$cheat_out" =~ "Ctrl-b" ]]; then
+if [[ "$cheat_out" =~ "tmux-glance Viewfinder" ]] && [[ "$cheat_out" =~ "Ctrl-p" ]] && [[ "$cheat_out" =~ "Ctrl-s" ]] && [[ "$cheat_out" =~ "Ctrl-b" ]] && [[ "$cheat_out" =~ "Ctrl-h" ]]; then
     echo "PASS"
 else
     echo "FAIL: Cheat sheet output missing expected controls: $cheat_out"

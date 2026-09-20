@@ -15,6 +15,8 @@ bash "$SCRIPT_DIR/test_routing.sh"
 echo ""
 bash "$SCRIPT_DIR/test_normalizer.sh"
 echo ""
+bash "$SCRIPT_DIR/test_jumplist.sh"
+echo ""
 bash "$SCRIPT_DIR/test_tmux_lifecycle.sh"
 echo ""
 

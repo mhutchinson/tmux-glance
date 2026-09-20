@@ -66,6 +66,12 @@ in {
       default = false;
       description = "Enable Tier 2 Harpoon fast-jump keybindings (prefix C-h, C-j, C-k, C-l).";
     };
+
+    enableJumplist = mkOption {
+      type = types.bool;
+      default = false;
+      description = "Enable Tier 2 Jumplist backtrack keybindings (prefix C-z, C-y, and repeatable prefix -r u, U).";
+    };
   };
 
   config = mkIf cfg.enable {
@@ -81,16 +87,22 @@ in {
       ${optionalString (cfg.routes != { }) ''
         set -g @glance_routes '${concatStringsSep "," (mapAttrsToList (k: v: "${k}=${v}") cfg.routes)}'
       ''}
-      bind-key ${cfg.keybindings.glance} display-popup -E -w ${cfg.popup.width} -h ${cfg.popup.height} "${cfg.package}/bin/tmux-glance list-all"
-      bind-key ${cfg.keybindings.hub} display-popup -E -w ${cfg.popup.width} -h ${cfg.popup.height} "${cfg.package}/bin/tmux-glance list"
+      bind-key ${cfg.keybindings.glance} display-popup -E -w ${cfg.popup.width} -h ${cfg.popup.height} "${cfg.package}/bin/tmux-glance list-all #{pane_id}"
+      bind-key ${cfg.keybindings.hub} display-popup -E -w ${cfg.popup.width} -h ${cfg.popup.height} "${cfg.package}/bin/tmux-glance list auto #{pane_id}"
       bind-key ${cfg.keybindings.vigil} run-shell "${cfg.package}/bin/tmux-glance toggle-vigil"
 
       set-hook -g pane-focus-in "run-shell '${cfg.package}/bin/tmux-glance on-focus #{pane_id}'"
       ${optionalString cfg.enableHarpoon ''
-        bind-key -r C-h run-shell "${cfg.package}/bin/tmux-glance jump-slot h"
-        bind-key -r C-j run-shell "${cfg.package}/bin/tmux-glance jump-slot j"
-        bind-key -r C-k run-shell "${cfg.package}/bin/tmux-glance jump-slot k"
-        bind-key -r C-l run-shell "${cfg.package}/bin/tmux-glance jump-slot l"
+        bind-key -r C-h run-shell "${cfg.package}/bin/tmux-glance jump-slot h #{pane_id}"
+        bind-key -r C-j run-shell "${cfg.package}/bin/tmux-glance jump-slot j #{pane_id}"
+        bind-key -r C-k run-shell "${cfg.package}/bin/tmux-glance jump-slot k #{pane_id}"
+        bind-key -r C-l run-shell "${cfg.package}/bin/tmux-glance jump-slot l #{pane_id}"
+      ''}
+      ${optionalString cfg.enableJumplist ''
+        bind-key C-z run-shell "${cfg.package}/bin/tmux-glance jump-back #{pane_id}"
+        bind-key C-y run-shell "${cfg.package}/bin/tmux-glance jump-forward #{pane_id}"
+        bind-key -r u run-shell "${cfg.package}/bin/tmux-glance jump-back #{pane_id}"
+        bind-key -r U run-shell "${cfg.package}/bin/tmux-glance jump-forward #{pane_id}"
       ''}
     '';
   };
