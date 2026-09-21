@@ -1627,7 +1627,6 @@ list_bookmarks() {
     if [[ -z "$source_pane" ]]; then
         source_pane=$(tmux display-message -p '#{pane_id}' 2>/dev/null || true)
     fi
-    with_lock scan_agents
 
     local initial_mode="attention"
 
@@ -1651,12 +1650,13 @@ list_bookmarks() {
 
     tmux set-option -g @glance_mode "$initial_mode" 2>/dev/null || true
 
-    local formatted_list
-    formatted_list=$(list_raw "$initial_mode")
-
     local fzf_extra_args=()
     if [[ -n "${TMUX_GLANCE_FZF_FILTER:-}" ]]; then
         fzf_extra_args+=(--filter="$TMUX_GLANCE_FZF_FILTER")
+    else
+        # In interactive mode: paint from cached state immediately, then trigger a
+        # background scan+reload via fzf's start: event so the popup opens fast.
+        fzf_extra_args+=(--bind "start:reload($SELF_BIN scan force 2>/dev/null; $SELF_BIN list-raw current 2>/dev/null)+pos(1)")
     fi
     if [[ "$initial_mode" == "history" ]]; then
         local init_pos
@@ -1664,9 +1664,11 @@ list_bookmarks() {
         fzf_extra_args+=(--bind "load:pos($init_pos)")
     fi
 
+    # Paint immediately from cached state, then trigger a background scan+reload
+    # via fzf's start: event so the popup opens without a blocking scan.
     # shellcheck disable=SC2016
     local selected
-    selected=$(echo "$formatted_list" | fzf \
+    selected=$(list_raw "$initial_mode" | fzf \
         ${fzf_extra_args[@]+"${fzf_extra_args[@]}"} \
         --delimiter=$'\t' \
         --with-nth=1 \
