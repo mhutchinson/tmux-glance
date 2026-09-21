@@ -274,6 +274,9 @@ programs.tmux-glance = {
 
   # Enable Tier 2 Jumplist backtrack chords (prefix C-z, C-y, and repeatable prefix -r u, U):
   enableJumplist = true;
+
+  # Cooldown threshold in seconds to debounce background scans when focus is unchanged (default: 3)
+  scanCooldown = 3;
 };
 ```
 
@@ -294,6 +297,9 @@ set -g @glance_enable_harpoon 'on'
 
 # Enable Tier 2 Jumplist backtrack chords (prefix C-z, C-y, -r u, -r U):
 set -g @glance_enable_jumplist 'on'
+
+# Cooldown threshold in seconds to debounce background scans when focus is unchanged (default: 3)
+set -g @glance_scan_cooldown 3
 ```
 
 ---

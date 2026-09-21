@@ -72,6 +72,12 @@ in {
       default = false;
       description = "Enable Tier 2 Jumplist backtrack keybindings (prefix C-z, C-y, and repeatable prefix -r u, U).";
     };
+
+    scanCooldown = mkOption {
+      type = types.int;
+      default = 3;
+      description = "Cooldown threshold in seconds to debounce background scans when focus is unchanged.";
+    };
   };
 
   config = mkIf cfg.enable {
@@ -86,6 +92,9 @@ in {
       ''}
       ${optionalString (cfg.routes != { }) ''
         set -g @glance_routes '${concatStringsSep "," (mapAttrsToList (k: v: "${k}=${v}") cfg.routes)}'
+      ''}
+      ${optionalString (cfg.scanCooldown != 3) ''
+        set -g @glance_scan_cooldown ${toString cfg.scanCooldown}
       ''}
       bind-key ${cfg.keybindings.glance} display-popup -E -w ${cfg.popup.width} -h ${cfg.popup.height} "${cfg.package}/bin/tmux-glance list-all #{pane_id}"
       bind-key ${cfg.keybindings.hub} display-popup -E -w ${cfg.popup.width} -h ${cfg.popup.height} "${cfg.package}/bin/tmux-glance list auto #{pane_id}"

@@ -19,6 +19,8 @@ bash "$SCRIPT_DIR/test_jumplist.sh"
 echo ""
 bash "$SCRIPT_DIR/test_tmux_lifecycle.sh"
 echo ""
+bash "$SCRIPT_DIR/test_perf_scan.sh"
+echo ""
 
 echo "=========================================="
 echo " ✅ ALL UNIT & INTEGRATION TESTS PASSED!"

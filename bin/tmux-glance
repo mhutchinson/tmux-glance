@@ -145,20 +145,20 @@ if [[ -n "$routes_str" ]]; then
     done
 fi
 
-# Resolve matching sentinel for a command
-get_sentinel() {
+# Resolve matching sentinel for a command into _resolved_sentinel without subshell
+resolve_sentinel() {
     local cmd="${1:-}"
     if [[ -z "$cmd" ]]; then
-        echo "generic"
+        _resolved_sentinel="generic"
         return 0
     fi
     local mapped="${COMMAND_MAP[$cmd]:-}"
     if [[ -n "$mapped" ]]; then
         if [[ -n "${DISABLED_SENTINELS[$mapped]:-}" ]]; then
-            echo "generic"
+            _resolved_sentinel="generic"
             return 0
         fi
-        echo "$mapped"
+        _resolved_sentinel="$mapped"
         return 0
     fi
 
@@ -168,11 +168,19 @@ get_sentinel() {
         [[ -n "${DISABLED_SENTINELS[$s]:-}" ]] && continue
         if "sentinel_${s}_matches" "$cmd" 2>/dev/null; then
             COMMAND_MAP["$cmd"]="$s" # Cache for future calls
-            echo "$s"
+            _resolved_sentinel="$s"
             return 0
         fi
     done
-    echo "generic"
+    COMMAND_MAP["$cmd"]="generic"
+    _resolved_sentinel="generic"
+    return 0
+}
+
+# Resolve matching sentinel for a command (stdout interface)
+get_sentinel() {
+    resolve_sentinel "${1:-}"
+    echo "$_resolved_sentinel"
 }
 
 # Delegate fingerprint to matched sentinel
@@ -182,8 +190,8 @@ hash_screen() {
     if [[ -z "$cmd" ]]; then
         cmd=$(tmux display-message -p -t "$pane" '#{pane_current_command}' 2>/dev/null || true)
     fi
-    local sentinel
-    sentinel=$(get_sentinel "$cmd")
+    resolve_sentinel "$cmd"
+    local sentinel="$_resolved_sentinel"
     "sentinel_${sentinel}_fingerprint" "$pane"
 }
 
@@ -265,6 +273,7 @@ add_bookmark() {
     printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\tmanual\twatching\n" \
         "$pane_id" "$session_name" "$window_index" "$pane_index" "$path" "$command" "$label" >> "$temp_file"
     mv "$temp_file" "$STATE_FILE"
+    tmux set-option -g @glance_last_scan_time 0 2>/dev/null || true
     tmux refresh-client -S 2>/dev/null || true
     tmux display-message "👁️ Vigil active: $label"
 }
@@ -283,6 +292,7 @@ remove_bookmark() {
         grep -v "^${pane_id}	" "$STATE_FILE" > "$temp_file" 2>/dev/null || true
         mv "$temp_file" "$STATE_FILE"
         tmux set-option -u -p -t "$pane_id" @glance_snapshot 2>/dev/null || true
+        tmux set-option -g @glance_last_scan_time 0 2>/dev/null || true
         tmux refresh-client -S 2>/dev/null || true
         tmux display-message "👁️ Vigil released: $stored_label"
     else
@@ -308,17 +318,197 @@ toggle_vigil() {
     fi
 }
 
-# Return list of currently focused pane IDs across all attached clients
+# Return list of currently focused pane IDs across all attached clients (or active panes if detached/headless)
 get_focused_panes() {
-    tmux list-clients -F '#{pane_id}' 2>/dev/null || true
+    local clients
+    clients=$(tmux list-clients -F '#{pane_id}' 2>/dev/null || true)
+    if [[ -n "$clients" ]]; then
+        echo "$clients"
+    else
+        tmux list-sessions -F '#{pane_id}' 2>/dev/null || true
+    fi
+}
+
+# Evaluate a single candidate pane (classification, screen hashing, options update)
+evaluate_candidate_pane() {
+    local pane_id="$1" sess="$2" win="$3" pane="$4" path="$5" cmd="$6" tty="$7" is_focused="$8" sentinel="$9"
+    local c_kind="${10:-}" c_state="${11:-}" c_label="${12:-}"
+
+    # 1. Manual Vigil
+    if [[ "$c_kind" == "manual" ]]; then
+        local curr_hash prev_hash
+        curr_hash=$(hash_screen "$pane_id" "$cmd")
+        prev_hash=$(tmux show-option -pv -t "$pane_id" @glance_snapshot 2>/dev/null || tmux show-option -pv -t "$pane_id" @watch_snapshot 2>/dev/null || true)
+
+        if [[ $is_focused -eq 1 ]]; then
+            tmux set-option -p -t "$pane_id" @glance_snapshot "$curr_hash" 2>/dev/null || true
+            if [[ "$c_state" == "alert" ]]; then
+                printf "RESULT|%s|SET|manual|watching|%s\n" "$pane_id" "$c_label"
+            else
+                printf "RESULT|%s|UNCHANGED|manual|%s|%s\n" "$pane_id" "$c_state" "$c_label"
+            fi
+        else
+            if [[ -z "$prev_hash" ]]; then
+                tmux set-option -p -t "$pane_id" @glance_snapshot "$curr_hash" 2>/dev/null || true
+                printf "RESULT|%s|UNCHANGED|manual|%s|%s\n" "$pane_id" "$c_state" "$c_label"
+            elif [[ "$curr_hash" != "$prev_hash" ]]; then
+                if [[ "$c_state" != "alert" ]]; then
+                    printf "RESULT|%s|SET|manual|alert|%s\n" "$pane_id" "$c_label"
+                else
+                    printf "RESULT|%s|UNCHANGED|manual|alert|%s\n" "$pane_id" "$c_label"
+                fi
+            else
+                printf "RESULT|%s|UNCHANGED|manual|%s|%s\n" "$pane_id" "$c_state" "$c_label"
+            fi
+        fi
+        return 0
+    fi
+
+    # 2. Autonomous Agent (matched non-generic sentinel)
+    if [[ "$sentinel" != "generic" ]]; then
+        local classification new_state new_label
+        classification=$("sentinel_${sentinel}_classify" "$pane_id" "$path" "$cmd" 2>/dev/null || true)
+        new_state=$(echo "$classification" | cut -f1)
+        new_label=$(echo "$classification" | cut -f2-)
+
+        if [[ "$new_state" == "idle" ]]; then
+            local curr_hash prev_hash
+            curr_hash=$(hash_screen "$pane_id" "$cmd")
+            prev_hash=$(tmux show-option -pv -t "$pane_id" @glance_agent_snapshot 2>/dev/null || true)
+
+            if [[ $is_focused -eq 1 ]]; then
+                tmux set-option -p -t "$pane_id" @glance_agent_snapshot "$curr_hash" 2>/dev/null || true
+                if [[ -n "$c_state" ]]; then
+                    printf "RESULT|%s|REMOVE|||\n" "$pane_id"
+                else
+                    printf "RESULT|%s|NOOP|||\n" "$pane_id"
+                fi
+                return 0
+            else
+                if [[ -n "$prev_hash" && "$curr_hash" != "$prev_hash" ]]; then
+                    new_state="done"
+                    new_label="updated in $(basename "$path")"
+                elif [[ -z "$prev_hash" ]]; then
+                    tmux set-option -p -t "$pane_id" @glance_agent_snapshot "$curr_hash" 2>/dev/null || true
+                    if [[ "$c_state" == "waiting" || "$c_state" == "running" ]]; then
+                        printf "RESULT|%s|REMOVE|||\n" "$pane_id"
+                        return 0
+                    elif [[ -n "$c_state" ]]; then
+                        printf "RESULT|%s|UNCHANGED|%s|%s|%s\n" "$pane_id" "$c_kind" "$c_state" "$c_label"
+                        return 0
+                    else
+                        printf "RESULT|%s|NOOP|||\n" "$pane_id"
+                        return 0
+                    fi
+                else
+                    # Snapshot matches prev_hash: idle with no unread activity
+                    if [[ "$c_state" == "waiting" || "$c_state" == "running" ]]; then
+                        printf "RESULT|%s|REMOVE|||\n" "$pane_id"
+                        return 0
+                    elif [[ -n "$c_state" ]]; then
+                        printf "RESULT|%s|UNCHANGED|%s|%s|%s\n" "$pane_id" "$c_kind" "$c_state" "$c_label"
+                        return 0
+                    else
+                        printf "RESULT|%s|NOOP|||\n" "$pane_id"
+                        return 0
+                    fi
+                fi
+            fi
+        fi
+
+        # Handle focused agent pane
+        if [[ $is_focused -eq 1 ]]; then
+            if [[ -z "$c_state" ]]; then
+                printf "RESULT|%s|NOOP|||\n" "$pane_id"
+                return 0
+            fi
+            if [[ "$new_state" == "done" || "$c_state" == "done" || "$new_state" == "idle" ]]; then
+                printf "RESULT|%s|REMOVE|||\n" "$pane_id"
+                return 0
+            fi
+            printf "RESULT|%s|UNCHANGED|%s|%s|%s\n" "$pane_id" "$c_kind" "$c_state" "$c_label"
+            return 0
+        fi
+
+        # Background pane needing attention
+        if [[ -n "$new_state" && "$new_state" != "idle" && "$new_state" != "unknown" ]]; then
+            if [[ "$c_state" != "$new_state" ]]; then
+                printf "RESULT|%s|SET|auto|%s|%s\n" "$pane_id" "$new_state" "$new_label"
+                return 0
+            else
+                printf "RESULT|%s|UNCHANGED|auto|%s|%s\n" "$pane_id" "$c_state" "$c_label"
+                return 0
+            fi
+        fi
+
+        if [[ -n "$c_state" ]]; then
+            printf "RESULT|%s|UNCHANGED|%s|%s|%s\n" "$pane_id" "$c_kind" "$c_state" "$c_label"
+        else
+            printf "RESULT|%s|NOOP|||\n" "$pane_id"
+        fi
+        return 0
+    fi
+
+    # 3. Command changed away from agent
+    if [[ -n "$c_state" && ("$c_state" == "running" || "$c_state" == "waiting") ]]; then
+        local tty_name="${tty#/dev/}"
+        local agent_alive=0
+        for s in "${SENTINELS[@]}"; do
+            [[ "$s" == "generic" ]] && continue
+            # shellcheck disable=SC2009
+            if ps -t "$tty_name" -o comm= 2>/dev/null | grep -qE "(agy|antigravity)"; then
+                agent_alive=1
+                break
+            fi
+        done
+
+        if [[ $agent_alive -eq 0 ]]; then
+            printf "RESULT|%s|SET|auto|done|exited in %s\n" "$pane_id" "$(basename "$path")"
+            return 0
+        fi
+    fi
+
+    if [[ -n "$c_state" ]]; then
+        printf "RESULT|%s|UNCHANGED|%s|%s|%s\n" "$pane_id" "$c_kind" "$c_state" "$c_label"
+    else
+        printf "RESULT|%s|NOOP|||\n" "$pane_id"
+    fi
+    return 0
 }
 
 # Scan agent and watched panes across tmux server
 scan_agents() {
+    local force_flag="${1:-}"
+    local force=0
+    [[ "$force_flag" == "force" || "$force_flag" == "--force" || "$force_flag" == "1" ]] && force=1
+
     prune_bookmarks
 
     local focused_panes
     focused_panes=$(get_focused_panes | tr '\n' ' ')
+
+    local cooldown
+    cooldown=$(tmux show-option -gv @glance_scan_cooldown 2>/dev/null || true)
+    cooldown="${cooldown:-${TMUX_GLANCE_SCAN_COOLDOWN:-3}}"
+    if ! [[ "$cooldown" =~ ^[0-9]+$ ]]; then
+        cooldown=3
+    fi
+
+    local now
+    now=$(date +%s 2>/dev/null || echo 0)
+
+    if [[ $force -ne 1 && "$cooldown" -gt 0 ]]; then
+        local last_scan_time last_scan_focus
+        last_scan_time=$(tmux show-option -gv @glance_last_scan_time 2>/dev/null || echo 0)
+        last_scan_focus=$(tmux show-option -gv @glance_last_scan_focus 2>/dev/null || echo "")
+
+        if [[ -n "$last_scan_time" && "$last_scan_time" =~ ^[0-9]+$ ]]; then
+            local elapsed=$(( now - last_scan_time ))
+            if [[ $elapsed -ge 0 && $elapsed -lt $cooldown && "$focused_panes" == "$last_scan_focus" ]]; then
+                return 0
+            fi
+        fi
+    fi
 
     declare -A bm_kind bm_state bm_label
     local p_id s_name w_idx p_idx p_path p_cmd p_lbl p_k p_st
@@ -334,8 +524,19 @@ scan_agents() {
     panes_list=$(tmux list-panes -a -F '#{pane_id}|#{session_name}|#{window_index}|#{pane_index}|#{pane_current_path}|#{pane_current_command}|#{pane_tty}' 2>/dev/null || true)
 
     declare -A curr_sess curr_win curr_pane curr_path curr_cmd
+    local candidates=()
+
     while IFS='|' read -r pane_id sess win pane path cmd tty; do
         [[ -z "$pane_id" ]] && continue
+
+        resolve_sentinel "$cmd"
+        local sentinel="$_resolved_sentinel"
+
+        # Fast-path non-agent panes:
+        # If the pane is not currently tracked in STATE_FILE and command is generic, skip evaluation completely
+        if [[ -z "${bm_kind[$pane_id]:-}" && "$sentinel" == "generic" ]]; then
+            continue
+        fi
 
         curr_sess["$pane_id"]="$sess"
         curr_win["$pane_id"]="$win"
@@ -344,136 +545,83 @@ scan_agents() {
         curr_cmd["$pane_id"]="$cmd"
 
         local is_focused=0
-        if [[ " $focused_panes " == *" $pane_id "* ]]; then
-            is_focused=1
+        [[ " $focused_panes " == *" $pane_id "* ]] && is_focused=1
+
+        candidates+=("${pane_id}	${sess}	${win}	${pane}	${path}	${cmd}	${tty}	${is_focused}	${sentinel}")
+    done <<< "$panes_list"
+
+    if [[ ${#candidates[@]} -gt 0 ]]; then
+        local worker_dir=""
+        local pids=()
+        if [[ ${#candidates[@]} -gt 1 ]]; then
+            worker_dir=$(mktemp -d "${TMPDIR:-/tmp}/glance-workers.XXXXXX" 2>/dev/null || true)
         fi
 
-        local sentinel
-        sentinel=$(get_sentinel "$cmd")
+        for c_entry in "${candidates[@]}"; do
+            local c_id c_sess c_win c_pane c_path c_cmd c_tty c_foc c_sentinel
+            IFS=$'\t' read -r c_id c_sess c_win c_pane c_path c_cmd c_tty c_foc c_sentinel <<< "$c_entry"
+            local k="${bm_kind[$c_id]:-}"
+            local st="${bm_state[$c_id]:-}"
+            local lbl="${bm_label[$c_id]:-}"
 
-        # Sentinel Watch handling for manual vigils
-        if [[ "${bm_kind[$pane_id]:-}" == "manual" ]]; then
-            local curr_hash
-            curr_hash=$(hash_screen "$pane_id" "$cmd")
-            local prev_hash
-            prev_hash=$(tmux show-option -pv -t "$pane_id" @glance_snapshot 2>/dev/null || tmux show-option -pv -t "$pane_id" @watch_snapshot 2>/dev/null || true)
-
-            if [[ $is_focused -eq 1 ]]; then
-                tmux set-option -p -t "$pane_id" @glance_snapshot "$curr_hash" 2>/dev/null || true
-                if [[ "${bm_state[$pane_id]}" == "alert" ]]; then
-                    bm_state["$pane_id"]="watching"
-                    updated=1
+            if [[ -n "$worker_dir" && -d "$worker_dir" ]]; then
+                evaluate_candidate_pane "$c_id" "$c_sess" "$c_win" "$c_pane" "$c_path" "$c_cmd" "$c_tty" "$c_foc" "$c_sentinel" "$k" "$st" "$lbl" > "$worker_dir/$c_id" 2>/dev/null &
+                pids+=($!)
+                if [[ $(( ${#pids[@]} % 8 )) -eq 0 ]]; then
+                    wait "${pids[@]}" 2>/dev/null || true
+                    pids=()
                 fi
             else
-                if [[ -z "$prev_hash" ]]; then
-                    tmux set-option -p -t "$pane_id" @glance_snapshot "$curr_hash" 2>/dev/null || true
-                elif [[ "$curr_hash" != "$prev_hash" ]]; then
-                    if [[ "${bm_state[$pane_id]}" != "alert" ]]; then
-                        bm_state["$pane_id"]="alert"
+                local res
+                res=$(evaluate_candidate_pane "$c_id" "$c_sess" "$c_win" "$c_pane" "$c_path" "$c_cmd" "$c_tty" "$c_foc" "$c_sentinel" "$k" "$st" "$lbl" 2>/dev/null || true)
+                local _tag _r_id r_act r_k r_st r_lbl
+                IFS='|' read -r _tag _r_id r_act r_k r_st r_lbl <<< "$res"
+                case "$r_act" in
+                    SET)
+                        bm_kind["$c_id"]="$r_k"
+                        bm_state["$c_id"]="$r_st"
+                        bm_label["$c_id"]="$r_lbl"
                         updated=1
-                    fi
-                fi
-            fi
-            continue
-        fi
-
-        # Autonomous agent tracking via matched non-generic Sentinel
-        if [[ "$sentinel" != "generic" ]]; then
-            local classification
-            classification=$("sentinel_${sentinel}_classify" "$pane_id" "$path" "$cmd")
-            local new_state new_label
-            new_state=$(echo "$classification" | cut -f1)
-            new_label=$(echo "$classification" | cut -f2-)
-
-            local current_state="${bm_state[$pane_id]:-}"
-
-            # If agent pane is idle at prompt, check for background output activity via normalized fingerprint
-            if [[ "$new_state" == "idle" ]]; then
-                local curr_hash
-                curr_hash=$(hash_screen "$pane_id" "$cmd")
-                local prev_hash
-                prev_hash=$(tmux show-option -pv -t "$pane_id" @glance_agent_snapshot 2>/dev/null || true)
-
-                if [[ $is_focused -eq 1 ]]; then
-                    tmux set-option -p -t "$pane_id" @glance_agent_snapshot "$curr_hash" 2>/dev/null || true
-                    if [[ -n "$current_state" ]]; then
-                        unset "bm_kind[$pane_id]"
-                        unset "bm_state[$pane_id]"
-                        unset "bm_label[$pane_id]"
+                        ;;
+                    REMOVE)
+                        unset "bm_kind[$c_id]"
+                        unset "bm_state[$c_id]"
+                        unset "bm_label[$c_id]"
                         updated=1
-                    fi
-                    continue
-                else
-                    if [[ -n "$prev_hash" && "$curr_hash" != "$prev_hash" ]]; then
-                        new_state="done"
-                        new_label="updated in $(basename "$path")"
-                    elif [[ -z "$prev_hash" ]]; then
-                        tmux set-option -p -t "$pane_id" @glance_agent_snapshot "$curr_hash" 2>/dev/null || true
-                        if [[ "$current_state" == "waiting" || "$current_state" == "running" ]]; then
-                            unset "bm_kind[$pane_id]"
-                            unset "bm_state[$pane_id]"
-                            unset "bm_label[$pane_id]"
-                            updated=1
-                        fi
-                    else
-                        # Snapshot matches prev_hash: idle with no unread activity
-                        if [[ "$current_state" == "waiting" || "$current_state" == "running" ]]; then
-                            unset "bm_kind[$pane_id]"
-                            unset "bm_state[$pane_id]"
-                            unset "bm_label[$pane_id]"
-                            updated=1
-                        fi
-                    fi
-                fi
+                        ;;
+                esac
             fi
+        done
 
-            # Handle focused agent pane
-            if [[ $is_focused -eq 1 ]]; then
-                if [[ -z "$current_state" ]]; then
-                    continue
-                fi
-                if [[ "$new_state" == "done" || "$current_state" == "done" || "$new_state" == "idle" ]]; then
-                    unset "bm_kind[$pane_id]"
-                    unset "bm_state[$pane_id]"
-                    unset "bm_label[$pane_id]"
-                    updated=1
-                    continue
-                fi
+        if [[ -n "$worker_dir" && -d "$worker_dir" ]]; then
+            if [[ ${#pids[@]} -gt 0 ]]; then
+                wait "${pids[@]}" 2>/dev/null || true
             fi
-
-            # Background pane needing attention
-            if [[ -n "$new_state" && "$new_state" != "idle" && "$new_state" != "unknown" ]]; then
-                if [[ "$current_state" != "$new_state" ]]; then
-                    bm_kind["$pane_id"]="auto"
-                    bm_state["$pane_id"]="$new_state"
-                    bm_label["$pane_id"]="$new_label"
-                    updated=1
-                fi
-            fi
-        else
-            # Command changed away from agent
-            local current_state="${bm_state[$pane_id]:-}"
-            if [[ -n "$current_state" && ("$current_state" == "running" || "$current_state" == "waiting") ]]; then
-                local tty_name="${tty#/dev/}"
-                # Check if an agent is running as a parent/child process on this TTY
-                local agent_alive=0
-                for s in "${SENTINELS[@]}"; do
-                    [[ "$s" == "generic" ]] && continue
-                    # shellcheck disable=SC2009
-                    if ps -t "$tty_name" -o comm= 2>/dev/null | grep -qE "(agy|antigravity)"; then
-                        agent_alive=1
-                        break
-                    fi
-                done
-
-                if [[ $agent_alive -eq 0 ]]; then
-                    bm_state["$pane_id"]="done"
-                    bm_label["$pane_id"]="exited in $(basename "$path")"
-                    updated=1
-                fi
-            fi
+            for c_entry in "${candidates[@]}"; do
+                local c_id
+                IFS=$'\t' read -r c_id _rest <<< "$c_entry"
+                local res_file="$worker_dir/$c_id"
+                [[ -f "$res_file" ]] || continue
+                local _tag _r_id r_act r_k r_st r_lbl
+                IFS='|' read -r _tag _r_id r_act r_k r_st r_lbl < "$res_file" || true
+                case "$r_act" in
+                    SET)
+                        bm_kind["$c_id"]="$r_k"
+                        bm_state["$c_id"]="$r_st"
+                        bm_label["$c_id"]="$r_lbl"
+                        updated=1
+                        ;;
+                    REMOVE)
+                        unset "bm_kind[$c_id]"
+                        unset "bm_state[$c_id]"
+                        unset "bm_label[$c_id]"
+                        updated=1
+                        ;;
+                esac
+            done
+            rm -rf "$worker_dir"
         fi
-    done <<< "$panes_list"
+    fi
 
     # Write back if state changed
     if [[ $updated -eq 1 ]]; then
@@ -508,6 +656,10 @@ scan_agents() {
 
         mv "$temp_file" "$STATE_FILE"
     fi
+
+    # Record scan completion timestamp and focus state for debouncing
+    tmux set-option -g @glance_last_scan_time "$now" 2>/dev/null || true
+    tmux set-option -g @glance_last_scan_focus "$focused_panes" 2>/dev/null || true
 }
 
 # Auto-acknowledge and sync on focus
@@ -535,7 +687,8 @@ on_focus() {
             else
                 local cmd_f sentinel_f
                 cmd_f=$(tmux display-message -p -t "$target_pane" '#{pane_current_command}' 2>/dev/null || true)
-                sentinel_f=$(get_sentinel "$cmd_f")
+                resolve_sentinel "$cmd_f"
+                sentinel_f="$_resolved_sentinel"
                 if [[ "$sentinel_f" != "generic" ]]; then
                     local path_f cls_f st_f
                     path_f=$(tmux display-message -p -t "$target_pane" '#{pane_current_path}' 2>/dev/null || true)
@@ -573,15 +726,16 @@ on_focus() {
     fi
 
     # Always sync agent snapshot on focus if it is an agent pane
-    local cmd
+    local cmd sentinel
     cmd=$(tmux display-message -p -t "$target_pane" '#{pane_current_command}' 2>/dev/null || true)
-    local sentinel
-    sentinel=$(get_sentinel "$cmd")
+    resolve_sentinel "$cmd"
+    sentinel="$_resolved_sentinel"
     if [[ "$sentinel" != "generic" ]]; then
         local curr_hash
         curr_hash=$(hash_screen "$target_pane" "$cmd")
         tmux set-option -p -t "$target_pane" @glance_agent_snapshot "$curr_hash" 2>/dev/null || true
     fi
+    tmux set-option -g @glance_last_scan_time 0 2>/dev/null || true
 }
 
 # Output formatted string for tmux status-right
@@ -721,7 +875,8 @@ get_all_bots_list() {
         local badge=""
         local label=""
         local sentinel
-        sentinel=$(get_sentinel "$cmd")
+        resolve_sentinel "$cmd"
+        sentinel="$_resolved_sentinel"
 
         if [[ -n "${bm_kind[$pane_id]:-}" ]]; then
             if [[ "${bm_kind[$pane_id]}" == "manual" ]]; then
@@ -1472,7 +1627,7 @@ list_bookmarks() {
     if [[ -z "$source_pane" ]]; then
         source_pane=$(tmux display-message -p '#{pane_id}' 2>/dev/null || true)
     fi
-    scan_agents
+    with_lock scan_agents
 
     local initial_mode="attention"
 
@@ -1576,7 +1731,8 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
             is_watched
             ;;
         scan)
-            with_lock scan_agents
+            shift || true
+            with_lock scan_agents "force"
             ;;
         on-focus)
             shift
