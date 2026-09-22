@@ -5,8 +5,16 @@ default:
     @just --list
 
 # Run unit and integration test suite
-test:
+test: go-build
     bash tests/run_tests.sh
+
+# Build the Go engine binary into bin/
+go-build:
+    go build -o bin/glance-engine ./cmd/glance-engine
+
+# Run Go unit tests with race detector
+go-test:
+    go test -race ./...
 
 # Run Nix flake checks (builds package and runs sandboxed tests)
 check:
@@ -15,6 +23,7 @@ check:
 # Build the tmux-glance package via Nix
 build:
     nix build .#tmux-glance
+
 
 # Wire running tmux directly to this working tree for instant zero-rebuild live development
 live:
@@ -41,8 +50,8 @@ lint:
         nix run nixpkgs#shellcheck -- bin/tmux-glance sentinels/*.sh glance.tmux tests/*.sh; \
     fi
 
-# Run all local CI verification steps (lint, test, check)
-ci: lint test check
+# Run all local CI verification steps (lint, go-test, test, check)
+ci: lint go-test test check
 
 # List open GitHub pull requests
 gh-prs:
