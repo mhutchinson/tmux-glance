@@ -1,1135 +1,77 @@
 #!/usr/bin/env bash
+# tmux-glance v0.7 — thin bash dispatcher
+# All stateful engine logic has moved to glance-engine (Go binary).
+# This script handles:
+#   - fzf popup assembly (list-bookmarks / list-all / list-sessions / list-history)
+#   - live pane preview loop (preview)
+#   - interactive pin keyread (pin-interactive)
+#   - cheat sheet (cheat-sheet)
+#   - SELF_BIN resolution for fzf --bind reload callbacks
+# Everything else is delegated to glance-engine.
 set -euo pipefail
 
-# Ensure UTF-8 locale for multibyte braille spinners and unicode box drawing
 export LC_ALL="${LC_ALL:-C.UTF-8}"
 export LANG="${LANG:-C.UTF-8}"
 
-# Self binary path for internal fzf callbacks
+# --- Self-binary resolution for fzf callbacks ---
 SELF_BIN="${BASH_SOURCE[0]}"
 if [[ -f "$SELF_BIN" ]]; then
     SELF_BIN="$(cd "$(dirname "$SELF_BIN")" && pwd)/$(basename "$SELF_BIN")"
 elif [[ ! -x "$SELF_BIN" ]]; then
     SELF_BIN=$(command -v tmux-glance || echo "$0")
 fi
+export TMUX_GLANCE_BIN="$SELF_BIN"
 
-# Configurable state file with seamless backward-compatibility migration
-STATE_FILE="${TMUX_GLANCE_STATE_FILE:-$HOME/.tmux-glance}"
-if [[ ! -f "$STATE_FILE" && -f "$HOME/.tmux-bookmarks" ]]; then
-    cp "$HOME/.tmux-bookmarks" "$STATE_FILE" 2>/dev/null || true
-fi
-touch "$STATE_FILE"
-
-# Configurable Harpoon slots state file
-SLOTS_FILE="${TMUX_GLANCE_SLOTS_FILE:-${XDG_STATE_HOME:-$HOME/.local/state}/tmux-glance/slots}"
-mkdir -p "$(dirname "$SLOTS_FILE")" 2>/dev/null || true
-touch "$SLOTS_FILE" 2>/dev/null || true
-
-# Configurable Jump stack state files
-JUMP_DIR="${TMUX_GLANCE_JUMP_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/tmux-glance}"
-JUMP_BACK_FILE="${TMUX_GLANCE_JUMP_BACK_FILE:-${JUMP_DIR}/jump_back}"
-JUMP_FORWARD_FILE="${TMUX_GLANCE_JUMP_FORWARD_FILE:-${JUMP_DIR}/jump_forward}"
-mkdir -p "$JUMP_DIR" 2>/dev/null || true
-touch "$JUMP_BACK_FILE" "$JUMP_FORWARD_FILE" 2>/dev/null || true
-
-# Discover and source Sentinels
+# --- Locate glance-engine binary ---
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BASE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-
-SENTINEL_DIRS=(
-    "${TMUX_GLANCE_SENTINEL_DIR:-}"
-    "${XDG_CONFIG_HOME:-$HOME/.config}/tmux-glance/sentinels"
-    "$BASE_DIR/sentinels"
-    "$BASE_DIR/share/tmux-glance/sentinels"
-)
-
-SENTINELS=()
-for s_dir in "${SENTINEL_DIRS[@]}"; do
-    [[ -n "$s_dir" && -d "$s_dir" ]] || continue
-    for s_file in "$s_dir"/*.sh; do
-        [[ -f "$s_file" ]] || continue
-        s_name="$(basename "$s_file" .sh)"
-        if [[ ! " ${SENTINELS[*]} " == *" ${s_name} "* ]]; then
-            # shellcheck source=/dev/null
-            source "$s_file"
-            SENTINELS+=("$s_name")
-        fi
-    done
+ENGINE=""
+for candidate in \
+    "${TMUX_GLANCE_ENGINE:-}" \
+    "$SCRIPT_DIR/glance-engine" \
+    "$SCRIPT_DIR/../libexec/glance-engine" \
+    "$(command -v glance-engine 2>/dev/null || true)"; do
+    if [[ -n "$candidate" && -x "$candidate" ]]; then
+        ENGINE="$candidate"
+        break
+    fi
 done
 
-# Fallback sentinels if directory not found
-if [[ ${#SENTINELS[@]} -eq 0 ]]; then
-    # shellcheck disable=SC2034
-    sentinel_antigravity_default_commands=("agy" "antigravity")
-    sentinel_antigravity_matches() {
-        local cmd="$1"
-        [[ "$cmd" =~ ^(agy|antigravity)$ ]]
-    }
-    sentinel_antigravity_classify() {
-        local pane_id="$1" path="$2" cmd="$3"
-        local non_empty last_line tail_text
-        non_empty=$(tmux capture-pane -p -t "$pane_id" 2>/dev/null | grep -v '^[[:space:]]*$')
-        last_line=$(echo "$non_empty" | tail -n 1)
-        tail_text=$(echo "$non_empty" | tail -n 10)
-        if [[ "$last_line" =~ \?[[:space:]]for[[:space:]]shortcuts ]]; then
-            printf "idle\tidle in %s\n" "$(basename "$path")"
-        elif [[ "$tail_text" =~ (Requesting[[:space:]]permission[[:space:]]for|Run[[:space:]]this[[:space:]]command\?|Navigate[[:space:]]·|1\.[[:space:]]Yes,[[:space:]]run[[:space:]]command|\(y/n\)) ]]; then
-            printf "waiting\twaiting for confirmation in %s\n" "$(basename "$path")"
-        elif [[ "$tail_text" =~ esc[[:space:]]to[[:space:]]cancel ]]; then
-            printf "running\trunning in %s\n" "$(basename "$path")"
-        else
-            printf "unknown\t%s\n" "$(basename "$path")"
-        fi
-    }
-    sentinel_antigravity_fingerprint() {
-        local pane_id="$1"
-        tmux capture-pane -p -t "$pane_id" 2>/dev/null \
-            | grep -vE '^[[:space:]]*[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏⣾⣽⣻⢿⡿⣟⣯⣷][[:space:]]' \
-            | sed -E 's/Thinking\.\.\..*//' \
-            | (md5 -q 2>/dev/null || md5sum 2>/dev/null | cut -d' ' -f1 || cksum | cut -d' ' -f1)
-    }
-
-    # shellcheck disable=SC2034
-    sentinel_generic_default_commands=()
-    sentinel_generic_matches() { return 0; }
-    sentinel_generic_classify() {
-        local pane_id="$1" path="$2" cmd="$3"
-        printf "watching\t%s in %s\n" "$cmd" "$(basename "$path")"
-    }
-    sentinel_generic_fingerprint() {
-        local pane_id="$1"
-        tmux capture-pane -p -t "$pane_id" 2>/dev/null \
-            | (md5 -q 2>/dev/null || md5sum 2>/dev/null | cut -d' ' -f1 || cksum | cut -d' ' -f1)
-    }
-    SENTINELS=("antigravity" "generic")
+if [[ -z "$ENGINE" ]]; then
+    echo "glance-engine not found. Run 'go build -o bin/glance-engine ./cmd/glance-engine' first." >&2
+    exit 1
 fi
 
-# Parse disabled sentinels from tmux options or environment
-disabled_str="$(tmux show-option -gv @glance_disabled_sentinels 2>/dev/null || echo "${TMUX_GLANCE_DISABLED_SENTINELS:-}")"
-declare -A DISABLED_SENTINELS
-if [[ -n "$disabled_str" ]]; then
-    IFS=',' read -r -a _dis_arr <<< "$disabled_str"
-    for _d in "${_dis_arr[@]}"; do
-        _d="$(echo "$_d" | xargs)"
-        [[ -n "$_d" ]] && DISABLED_SENTINELS["$_d"]=1
-    done
-fi
+# --- Pure-bash functions (no state, no engine needed) ---
 
-# Build O(1) Command Routing Table
-declare -A COMMAND_MAP
-
-# 1. Populate default suggested commands from loaded, active sentinels
-for s in "${SENTINELS[@]}"; do
-    [[ -n "${DISABLED_SENTINELS[$s]:-}" ]] && continue
-    _s_cmds=()
-    eval "_s_cmds=(\"\${sentinel_${s}_default_commands[@]:-}\")" 2>/dev/null || true
-    for c in "${_s_cmds[@]}"; do
-        [[ -n "$c" ]] && COMMAND_MAP["$c"]="$s"
-    done
-done
-
-# 2. Apply user-configured route overrides (e.g. chat=generic,my-cli=antigravity)
-routes_str="$(tmux show-option -gv @glance_routes 2>/dev/null || echo "${TMUX_GLANCE_ROUTES:-}")"
-if [[ -n "$routes_str" ]]; then
-    IFS=',' read -r -a _rt_arr <<< "$routes_str"
-    for _r in "${_rt_arr[@]}"; do
-        _r="$(echo "$_r" | xargs)"
-        [[ -z "$_r" ]] && continue
-        if [[ "$_r" =~ ^([^=]+)=([^=]+)$ ]]; then
-            _c="${BASH_REMATCH[1]}"
-            _t="${BASH_REMATCH[2]}"
-            _c="$(echo "$_c" | xargs)"
-            _t="$(echo "$_t" | xargs)"
-            COMMAND_MAP["$_c"]="$_t"
-        fi
-    done
-fi
-
-# Resolve matching sentinel for a command into _resolved_sentinel without subshell
-resolve_sentinel() {
-    local cmd="${1:-}"
-    if [[ -z "$cmd" ]]; then
-        _resolved_sentinel="generic"
-        return 0
-    fi
-    local mapped="${COMMAND_MAP[$cmd]:-}"
-    if [[ -n "$mapped" ]]; then
-        if [[ -n "${DISABLED_SENTINELS[$mapped]:-}" ]]; then
-            _resolved_sentinel="generic"
-            return 0
-        fi
-        _resolved_sentinel="$mapped"
-        return 0
-    fi
-
-    # Fallback to dynamic matches() only if not disabled
-    for s in "${SENTINELS[@]}"; do
-        [[ "$s" == "generic" ]] && continue
-        [[ -n "${DISABLED_SENTINELS[$s]:-}" ]] && continue
-        if "sentinel_${s}_matches" "$cmd" 2>/dev/null; then
-            COMMAND_MAP["$cmd"]="$s" # Cache for future calls
-            _resolved_sentinel="$s"
-            return 0
-        fi
-    done
-    COMMAND_MAP["$cmd"]="generic"
-    _resolved_sentinel="generic"
-    return 0
-}
-
-# Resolve matching sentinel for a command (stdout interface)
-get_sentinel() {
-    resolve_sentinel "${1:-}"
-    echo "$_resolved_sentinel"
-}
-
-# Delegate fingerprint to matched sentinel
-hash_screen() {
-    local pane="$1"
-    local cmd="${2:-}"
-    if [[ -z "$cmd" ]]; then
-        cmd=$(tmux display-message -p -t "$pane" '#{pane_current_command}' 2>/dev/null || true)
-    fi
-    resolve_sentinel "$cmd"
-    local sentinel="$_resolved_sentinel"
-    "sentinel_${sentinel}_fingerprint" "$pane"
-}
-
-# Atomic lock helpers
-acquire_lock() {
-    local lock_dir="${STATE_FILE}.lock"
-    local count=0
-    while ! mkdir "$lock_dir" 2>/dev/null; do
-        sleep 0.02
-        count=$((count + 1))
-        if [[ $count -ge 50 ]]; then
-            rmdir "$lock_dir" 2>/dev/null || true
-            count=0
-        fi
-    done
-}
-
-release_lock() {
-    local lock_dir="${STATE_FILE}.lock"
-    rmdir "$lock_dir" 2>/dev/null || true
-}
-
-with_lock() {
-    acquire_lock
-    trap 'release_lock' EXIT INT TERM
-    local ret=0
-    "$@" || ret=$?
-    trap - EXIT INT TERM
-    release_lock
-    return $ret
-}
-
-# Prune dead panes
-prune_bookmarks() {
-    tmux info &>/dev/null || return 0
-
-    local alive_panes
-    alive_panes=$(tmux list-panes -a -F '#{pane_id}' 2>/dev/null | tr '\n' ' ' || true)
-    [[ -z "$alive_panes" ]] && return 0
-
-    local temp_file pane_id session_name window_index pane_index path command label kind state
-    temp_file=$(mktemp)
-    while IFS=$'\t' read -r pane_id session_name window_index pane_index path command label kind state || [[ -n "$pane_id" ]]; do
-        [[ -z "$pane_id" ]] && continue
-        kind="${kind:-manual}"
-        state="${state:-watching}"
-        if [[ " $alive_panes " == *" $pane_id "* ]]; then
-            printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n" \
-                "$pane_id" "$session_name" "$window_index" "$pane_index" "$path" "$command" "$label" "$kind" "$state" >> "$temp_file"
-        fi
-    done < "$STATE_FILE"
-    mv "$temp_file" "$STATE_FILE"
-}
-
-# Add a sentinel watch (Vigil)
-add_bookmark() {
-    local label="$1"
-    local info pane_id session_name window_index pane_index path command
-    
-    prune_bookmarks
-
-    info=$(tmux display-message -p '#{pane_id}	#{session_name}	#{window_index}	#{pane_index}	#{pane_current_path}	#{pane_current_command}')
-    IFS=$'\t' read -r pane_id session_name window_index pane_index path command <<< "$info"
-
-    if [[ -z "$label" ]]; then
-        label="$command in $(basename "$path")"
-    fi
-
-    local initial_hash
-    initial_hash=$(hash_screen "$pane_id" "$command")
-    tmux set-option -p -t "$pane_id" @glance_snapshot "$initial_hash" 2>/dev/null || true
-
-    local temp_file
-    temp_file=$(mktemp)
-    if [[ -f "$STATE_FILE" ]]; then
-        grep -v "^${pane_id}	" "$STATE_FILE" > "$temp_file" 2>/dev/null || true
-    fi
-
-    printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\tmanual\twatching\n" \
-        "$pane_id" "$session_name" "$window_index" "$pane_index" "$path" "$command" "$label" >> "$temp_file"
-    mv "$temp_file" "$STATE_FILE"
-    tmux set-option -g @glance_last_scan_time 0 2>/dev/null || true
-    tmux refresh-client -S 2>/dev/null || true
-    tmux display-message "👁️ Vigil active: $label"
-}
-
-# Remove a watch manually
-remove_bookmark() {
-    prune_bookmarks
-
-    local pane_id stored_label
-    pane_id=$(tmux display-message -p '#{pane_id}')
-
-    if grep -q "^${pane_id}	" "$STATE_FILE" 2>/dev/null; then
-        stored_label=$(grep "^${pane_id}	" "$STATE_FILE" | cut -f7)
-        local temp_file
-        temp_file=$(mktemp)
-        grep -v "^${pane_id}	" "$STATE_FILE" > "$temp_file" 2>/dev/null || true
-        mv "$temp_file" "$STATE_FILE"
-        tmux set-option -u -p -t "$pane_id" @glance_snapshot 2>/dev/null || true
-        tmux set-option -g @glance_last_scan_time 0 2>/dev/null || true
-        tmux refresh-client -S 2>/dev/null || true
-        tmux display-message "👁️ Vigil released: $stored_label"
-    else
-        tmux display-message "No vigil active on this pane."
-    fi
-}
-
-is_watched() {
-    local pane_id
-    pane_id=$(tmux display-message -p '#{pane_id}')
-    grep -q "^${pane_id}	" "$STATE_FILE" 2>/dev/null
-}
-
-is_pinned() {
-    is_watched
-}
-
-toggle_vigil() {
-    if is_watched; then
-        remove_bookmark
-    else
-        add_bookmark "${1:-}"
-    fi
-}
-
-# Return list of currently focused pane IDs across all attached clients (or active panes if detached/headless)
-get_focused_panes() {
-    local clients
-    clients=$(tmux list-clients -F '#{pane_id}' 2>/dev/null || true)
-    if [[ -n "$clients" ]]; then
-        echo "$clients"
-    else
-        tmux list-sessions -F '#{pane_id}' 2>/dev/null || true
-    fi
-}
-
-# Evaluate a single candidate pane (classification, screen hashing, options update)
-evaluate_candidate_pane() {
-    local pane_id="$1" sess="$2" win="$3" pane="$4" path="$5" cmd="$6" tty="$7" is_focused="$8" sentinel="$9"
-    local c_kind="${10:-}" c_state="${11:-}" c_label="${12:-}"
-
-    # 1. Manual Vigil
-    if [[ "$c_kind" == "manual" ]]; then
-        local curr_hash prev_hash
-        curr_hash=$(hash_screen "$pane_id" "$cmd")
-        prev_hash=$(tmux show-option -pv -t "$pane_id" @glance_snapshot 2>/dev/null || tmux show-option -pv -t "$pane_id" @watch_snapshot 2>/dev/null || true)
-
-        if [[ $is_focused -eq 1 ]]; then
-            tmux set-option -p -t "$pane_id" @glance_snapshot "$curr_hash" 2>/dev/null || true
-            if [[ "$c_state" == "alert" ]]; then
-                printf "RESULT|%s|SET|manual|watching|%s\n" "$pane_id" "$c_label"
-            else
-                printf "RESULT|%s|UNCHANGED|manual|%s|%s\n" "$pane_id" "$c_state" "$c_label"
-            fi
-        else
-            if [[ -z "$prev_hash" ]]; then
-                tmux set-option -p -t "$pane_id" @glance_snapshot "$curr_hash" 2>/dev/null || true
-                printf "RESULT|%s|UNCHANGED|manual|%s|%s\n" "$pane_id" "$c_state" "$c_label"
-            elif [[ "$curr_hash" != "$prev_hash" ]]; then
-                if [[ "$c_state" != "alert" ]]; then
-                    printf "RESULT|%s|SET|manual|alert|%s\n" "$pane_id" "$c_label"
-                else
-                    printf "RESULT|%s|UNCHANGED|manual|alert|%s\n" "$pane_id" "$c_label"
-                fi
-            else
-                printf "RESULT|%s|UNCHANGED|manual|%s|%s\n" "$pane_id" "$c_state" "$c_label"
-            fi
-        fi
-        return 0
-    fi
-
-    # 2. Autonomous Agent (matched non-generic sentinel)
-    if [[ "$sentinel" != "generic" ]]; then
-        local classification new_state new_label
-        classification=$("sentinel_${sentinel}_classify" "$pane_id" "$path" "$cmd" 2>/dev/null || true)
-        new_state=$(echo "$classification" | cut -f1)
-        new_label=$(echo "$classification" | cut -f2-)
-
-        if [[ "$new_state" == "idle" ]]; then
-            local curr_hash prev_hash
-            curr_hash=$(hash_screen "$pane_id" "$cmd")
-            prev_hash=$(tmux show-option -pv -t "$pane_id" @glance_agent_snapshot 2>/dev/null || true)
-
-            if [[ $is_focused -eq 1 ]]; then
-                tmux set-option -p -t "$pane_id" @glance_agent_snapshot "$curr_hash" 2>/dev/null || true
-                if [[ -n "$c_state" ]]; then
-                    printf "RESULT|%s|REMOVE|||\n" "$pane_id"
-                else
-                    printf "RESULT|%s|NOOP|||\n" "$pane_id"
-                fi
-                return 0
-            else
-                if [[ -n "$prev_hash" && "$curr_hash" != "$prev_hash" ]]; then
-                    new_state="done"
-                    new_label="updated in $(basename "$path")"
-                elif [[ -z "$prev_hash" ]]; then
-                    tmux set-option -p -t "$pane_id" @glance_agent_snapshot "$curr_hash" 2>/dev/null || true
-                    if [[ "$c_state" == "waiting" || "$c_state" == "running" ]]; then
-                        printf "RESULT|%s|REMOVE|||\n" "$pane_id"
-                        return 0
-                    elif [[ -n "$c_state" ]]; then
-                        printf "RESULT|%s|UNCHANGED|%s|%s|%s\n" "$pane_id" "$c_kind" "$c_state" "$c_label"
-                        return 0
-                    else
-                        printf "RESULT|%s|NOOP|||\n" "$pane_id"
-                        return 0
-                    fi
-                else
-                    # Snapshot matches prev_hash: idle with no unread activity
-                    if [[ "$c_state" == "waiting" || "$c_state" == "running" ]]; then
-                        printf "RESULT|%s|REMOVE|||\n" "$pane_id"
-                        return 0
-                    elif [[ -n "$c_state" ]]; then
-                        printf "RESULT|%s|UNCHANGED|%s|%s|%s\n" "$pane_id" "$c_kind" "$c_state" "$c_label"
-                        return 0
-                    else
-                        printf "RESULT|%s|NOOP|||\n" "$pane_id"
-                        return 0
-                    fi
-                fi
-            fi
-        fi
-
-        # Handle focused agent pane
-        if [[ $is_focused -eq 1 ]]; then
-            if [[ -z "$c_state" ]]; then
-                printf "RESULT|%s|NOOP|||\n" "$pane_id"
-                return 0
-            fi
-            if [[ "$new_state" == "done" || "$c_state" == "done" || "$new_state" == "idle" ]]; then
-                printf "RESULT|%s|REMOVE|||\n" "$pane_id"
-                return 0
-            fi
-            printf "RESULT|%s|UNCHANGED|%s|%s|%s\n" "$pane_id" "$c_kind" "$c_state" "$c_label"
-            return 0
-        fi
-
-        # Background pane needing attention
-        if [[ -n "$new_state" && "$new_state" != "idle" && "$new_state" != "unknown" ]]; then
-            if [[ "$c_state" != "$new_state" ]]; then
-                printf "RESULT|%s|SET|auto|%s|%s\n" "$pane_id" "$new_state" "$new_label"
-                return 0
-            else
-                printf "RESULT|%s|UNCHANGED|auto|%s|%s\n" "$pane_id" "$c_state" "$c_label"
-                return 0
-            fi
-        fi
-
-        if [[ -n "$c_state" ]]; then
-            printf "RESULT|%s|UNCHANGED|%s|%s|%s\n" "$pane_id" "$c_kind" "$c_state" "$c_label"
-        else
-            printf "RESULT|%s|NOOP|||\n" "$pane_id"
-        fi
-        return 0
-    fi
-
-    # 3. Command changed away from agent
-    if [[ -n "$c_state" && ("$c_state" == "running" || "$c_state" == "waiting") ]]; then
-        local tty_name="${tty#/dev/}"
-        local agent_alive=0
-        for s in "${SENTINELS[@]}"; do
-            [[ "$s" == "generic" ]] && continue
-            # shellcheck disable=SC2009
-            if ps -t "$tty_name" -o comm= 2>/dev/null | grep -qE "(agy|antigravity)"; then
-                agent_alive=1
-                break
-            fi
-        done
-
-        if [[ $agent_alive -eq 0 ]]; then
-            printf "RESULT|%s|SET|auto|done|exited in %s\n" "$pane_id" "$(basename "$path")"
-            return 0
-        fi
-    fi
-
-    if [[ -n "$c_state" ]]; then
-        printf "RESULT|%s|UNCHANGED|%s|%s|%s\n" "$pane_id" "$c_kind" "$c_state" "$c_label"
-    else
-        printf "RESULT|%s|NOOP|||\n" "$pane_id"
-    fi
-    return 0
-}
-
-# Scan agent and watched panes across tmux server
-scan_agents() {
-    local force_flag="${1:-}"
-    local force=0
-    [[ "$force_flag" == "force" || "$force_flag" == "--force" || "$force_flag" == "1" ]] && force=1
-
-    prune_bookmarks
-
-    local focused_panes
-    focused_panes=$(get_focused_panes | tr '\n' ' ')
-
-    local cooldown
-    cooldown=$(tmux show-option -gv @glance_scan_cooldown 2>/dev/null || true)
-    cooldown="${cooldown:-${TMUX_GLANCE_SCAN_COOLDOWN:-3}}"
-    if ! [[ "$cooldown" =~ ^[0-9]+$ ]]; then
-        cooldown=3
-    fi
-
-    local now
-    now=$(date +%s 2>/dev/null || echo 0)
-
-    if [[ $force -ne 1 && "$cooldown" -gt 0 ]]; then
-        local last_scan_time last_scan_focus
-        last_scan_time=$(tmux show-option -gv @glance_last_scan_time 2>/dev/null || echo 0)
-        last_scan_focus=$(tmux show-option -gv @glance_last_scan_focus 2>/dev/null || echo "")
-
-        if [[ -n "$last_scan_time" && "$last_scan_time" =~ ^[0-9]+$ ]]; then
-            local elapsed=$(( now - last_scan_time ))
-            if [[ $elapsed -ge 0 && $elapsed -lt $cooldown && "$focused_panes" == "$last_scan_focus" ]]; then
-                return 0
-            fi
-        fi
-    fi
-
-    declare -A bm_kind bm_state bm_label
-    local p_id s_name w_idx p_idx p_path p_cmd p_lbl p_k p_st
-    while IFS=$'\t' read -r p_id s_name w_idx p_idx p_path p_cmd p_lbl p_k p_st || [[ -n "$p_id" ]]; do
-        [[ -z "$p_id" ]] && continue
-        bm_kind["$p_id"]="${p_k:-manual}"
-        bm_state["$p_id"]="${p_st:-watching}"
-        bm_label["$p_id"]="${p_lbl}"
-    done < "$STATE_FILE"
-
-    local updated=0
-    local panes_list
-    panes_list=$(tmux list-panes -a -F '#{pane_id}|#{session_name}|#{window_index}|#{pane_index}|#{pane_current_path}|#{pane_current_command}|#{pane_tty}' 2>/dev/null || true)
-
-    declare -A curr_sess curr_win curr_pane curr_path curr_cmd
-    local candidates=()
-
-    while IFS='|' read -r pane_id sess win pane path cmd tty; do
-        [[ -z "$pane_id" ]] && continue
-
-        resolve_sentinel "$cmd"
-        local sentinel="$_resolved_sentinel"
-
-        # Fast-path non-agent panes:
-        # If the pane is not currently tracked in STATE_FILE and command is generic, skip evaluation completely
-        if [[ -z "${bm_kind[$pane_id]:-}" && "$sentinel" == "generic" ]]; then
-            continue
-        fi
-
-        curr_sess["$pane_id"]="$sess"
-        curr_win["$pane_id"]="$win"
-        curr_pane["$pane_id"]="$pane"
-        curr_path["$pane_id"]="$path"
-        curr_cmd["$pane_id"]="$cmd"
-
-        local is_focused=0
-        [[ " $focused_panes " == *" $pane_id "* ]] && is_focused=1
-
-        candidates+=("${pane_id}	${sess}	${win}	${pane}	${path}	${cmd}	${tty}	${is_focused}	${sentinel}")
-    done <<< "$panes_list"
-
-    if [[ ${#candidates[@]} -gt 0 ]]; then
-        local worker_dir=""
-        local pids=()
-        if [[ ${#candidates[@]} -gt 1 ]]; then
-            worker_dir=$(mktemp -d "${TMPDIR:-/tmp}/glance-workers.XXXXXX" 2>/dev/null || true)
-        fi
-
-        for c_entry in "${candidates[@]}"; do
-            local c_id c_sess c_win c_pane c_path c_cmd c_tty c_foc c_sentinel
-            IFS=$'\t' read -r c_id c_sess c_win c_pane c_path c_cmd c_tty c_foc c_sentinel <<< "$c_entry"
-            local k="${bm_kind[$c_id]:-}"
-            local st="${bm_state[$c_id]:-}"
-            local lbl="${bm_label[$c_id]:-}"
-
-            if [[ -n "$worker_dir" && -d "$worker_dir" ]]; then
-                evaluate_candidate_pane "$c_id" "$c_sess" "$c_win" "$c_pane" "$c_path" "$c_cmd" "$c_tty" "$c_foc" "$c_sentinel" "$k" "$st" "$lbl" > "$worker_dir/$c_id" 2>/dev/null &
-                pids+=($!)
-                if [[ $(( ${#pids[@]} % 8 )) -eq 0 ]]; then
-                    wait "${pids[@]}" 2>/dev/null || true
-                    pids=()
-                fi
-            else
-                local res
-                res=$(evaluate_candidate_pane "$c_id" "$c_sess" "$c_win" "$c_pane" "$c_path" "$c_cmd" "$c_tty" "$c_foc" "$c_sentinel" "$k" "$st" "$lbl" 2>/dev/null || true)
-                local _tag _r_id r_act r_k r_st r_lbl
-                IFS='|' read -r _tag _r_id r_act r_k r_st r_lbl <<< "$res"
-                case "$r_act" in
-                    SET)
-                        bm_kind["$c_id"]="$r_k"
-                        bm_state["$c_id"]="$r_st"
-                        bm_label["$c_id"]="$r_lbl"
-                        updated=1
-                        ;;
-                    REMOVE)
-                        unset "bm_kind[$c_id]"
-                        unset "bm_state[$c_id]"
-                        unset "bm_label[$c_id]"
-                        updated=1
-                        ;;
-                esac
-            fi
-        done
-
-        if [[ -n "$worker_dir" && -d "$worker_dir" ]]; then
-            if [[ ${#pids[@]} -gt 0 ]]; then
-                wait "${pids[@]}" 2>/dev/null || true
-            fi
-            for c_entry in "${candidates[@]}"; do
-                local c_id
-                IFS=$'\t' read -r c_id _rest <<< "$c_entry"
-                local res_file="$worker_dir/$c_id"
-                [[ -f "$res_file" ]] || continue
-                local _tag _r_id r_act r_k r_st r_lbl
-                IFS='|' read -r _tag _r_id r_act r_k r_st r_lbl < "$res_file" || true
-                case "$r_act" in
-                    SET)
-                        bm_kind["$c_id"]="$r_k"
-                        bm_state["$c_id"]="$r_st"
-                        bm_label["$c_id"]="$r_lbl"
-                        updated=1
-                        ;;
-                    REMOVE)
-                        unset "bm_kind[$c_id]"
-                        unset "bm_state[$c_id]"
-                        unset "bm_label[$c_id]"
-                        updated=1
-                        ;;
-                esac
-            done
-            rm -rf "$worker_dir"
-        fi
-    fi
-
-    # Write back if state changed
-    if [[ $updated -eq 1 ]]; then
-        local temp_file
-        temp_file=$(mktemp)
-        while IFS=$'\t' read -r p_id s_name w_idx p_idx p_path p_cmd p_lbl p_k p_st || [[ -n "$p_id" ]]; do
-            [[ -z "$p_id" ]] && continue
-            s_name="${curr_sess[$p_id]:-$s_name}"
-            w_idx="${curr_win[$p_id]:-$w_idx}"
-            p_idx="${curr_pane[$p_id]:-$p_idx}"
-            p_path="${curr_path[$p_id]:-$p_path}"
-            p_cmd="${curr_cmd[$p_id]:-$p_cmd}"
-
-            if [[ -n "${bm_kind[$p_id]:-}" ]]; then
-                printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n" \
-                    "$p_id" "$s_name" "$w_idx" "$p_idx" "$p_path" "$p_cmd" "${bm_label[$p_id]}" "${bm_kind[$p_id]}" "${bm_state[$p_id]}" >> "$temp_file"
-                unset "bm_kind[$p_id]"
-            fi
-        done < "$STATE_FILE"
-
-        for p_id in "${!bm_kind[@]}"; do
-            local s_n="${curr_sess[$p_id]:-}"
-            local w_i="${curr_win[$p_id]:-}"
-            local p_i="${curr_pane[$p_id]:-}"
-            local p_p="${curr_path[$p_id]:-}"
-            local p_c="${curr_cmd[$p_id]:-}"
-            if [[ -n "$s_n" ]]; then
-                printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n" \
-                    "$p_id" "$s_n" "$w_i" "$p_i" "$p_p" "$p_c" "${bm_label[$p_id]}" "${bm_kind[$p_id]}" "${bm_state[$p_id]}" >> "$temp_file"
-            fi
-        done
-
-        mv "$temp_file" "$STATE_FILE"
-    fi
-
-    # Record scan completion timestamp and focus state for debouncing
-    tmux set-option -g @glance_last_scan_time "$now" 2>/dev/null || true
-    tmux set-option -g @glance_last_scan_focus "$focused_panes" 2>/dev/null || true
-}
-
-# Auto-acknowledge and sync on focus
-on_focus() {
-    local target_pane="${1:-}"
-    if [[ -z "$target_pane" ]]; then
-        target_pane=$(tmux display-message -p '#{pane_id}')
-    fi
-
-    [[ -z "$target_pane" ]] && return 0
-
-    if grep -q "^${target_pane}	" "$STATE_FILE" 2>/dev/null; then
-        local entry kind state
-        entry=$(grep "^${target_pane}	" "$STATE_FILE" | head -n 1)
-        kind=$(echo "$entry" | awk -F'\t' '{print $8}')
-        state=$(echo "$entry" | awk -F'\t' '{print $9}')
-
-        if [[ "$kind" == "auto" ]]; then
-            if [[ "$state" == "done" ]]; then
-                local temp_file
-                temp_file=$(mktemp)
-                grep -v "^${target_pane}	" "$STATE_FILE" > "$temp_file" 2>/dev/null || true
-                mv "$temp_file" "$STATE_FILE"
-                tmux refresh-client -S 2>/dev/null || true
-            else
-                local cmd_f sentinel_f
-                cmd_f=$(tmux display-message -p -t "$target_pane" '#{pane_current_command}' 2>/dev/null || true)
-                resolve_sentinel "$cmd_f"
-                sentinel_f="$_resolved_sentinel"
-                if [[ "$sentinel_f" != "generic" ]]; then
-                    local path_f cls_f st_f
-                    path_f=$(tmux display-message -p -t "$target_pane" '#{pane_current_path}' 2>/dev/null || true)
-                    cls_f=$("sentinel_${sentinel_f}_classify" "$target_pane" "$path_f" "$cmd_f" 2>/dev/null || true)
-                    st_f=$(echo "$cls_f" | cut -f1)
-                    if [[ "$st_f" == "idle" ]]; then
-                        local temp_file
-                        temp_file=$(mktemp)
-                        grep -v "^${target_pane}	" "$STATE_FILE" > "$temp_file" 2>/dev/null || true
-                        mv "$temp_file" "$STATE_FILE"
-                        tmux refresh-client -S 2>/dev/null || true
-                    fi
-                fi
-            fi
-        elif [[ "$kind" == "manual" ]]; then
-            local curr_hash
-            curr_hash=$(hash_screen "$target_pane")
-            tmux set-option -p -t "$target_pane" @glance_snapshot "$curr_hash" 2>/dev/null || true
-
-            if [[ "$state" == "alert" ]]; then
-                local temp_file
-                temp_file=$(mktemp)
-                while IFS=$'\t' read -r p_id s_n w_i p_i p_p p_c p_l p_k p_st || [[ -n "$p_id" ]]; do
-                    [[ -z "$p_id" ]] && continue
-                    if [[ "$p_id" == "$target_pane" ]]; then
-                        p_st="watching"
-                    fi
-                    printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n" \
-                        "$p_id" "$s_n" "$w_i" "$p_i" "$p_p" "$p_c" "$p_l" "$p_k" "$p_st" >> "$temp_file"
-                done < "$STATE_FILE"
-                mv "$temp_file" "$STATE_FILE"
-                tmux refresh-client -S 2>/dev/null || true
-            fi
-        fi
-    fi
-
-    # Always sync agent snapshot on focus if it is an agent pane
-    local cmd sentinel
-    cmd=$(tmux display-message -p -t "$target_pane" '#{pane_current_command}' 2>/dev/null || true)
-    resolve_sentinel "$cmd"
-    sentinel="$_resolved_sentinel"
-    if [[ "$sentinel" != "generic" ]]; then
-        local curr_hash
-        curr_hash=$(hash_screen "$target_pane" "$cmd")
-        tmux set-option -p -t "$target_pane" @glance_agent_snapshot "$curr_hash" 2>/dev/null || true
-    fi
-    tmux set-option -g @glance_last_scan_time 0 2>/dev/null || true
-}
-
-# Output formatted string for tmux status-right
-status_summary() {
-    scan_agents
-
-    local alert_count=0 watch_count=0 waiting_count=0 running_count=0 done_count=0
-
-    while IFS=$'\t' read -r p_id s_name w_idx p_idx p_path p_cmd p_lbl p_k p_st || [[ -n "$p_id" ]]; do
-        [[ -z "$p_id" ]] && continue
-        if [[ "$p_k" == "manual" ]]; then
-            case "$p_st" in
-                alert) alert_count=$((alert_count + 1)) ;;
-                *)     watch_count=$((watch_count + 1)) ;;
-            esac
-        elif [[ "$p_k" == "auto" ]]; then
-            case "$p_st" in
-                waiting) waiting_count=$((waiting_count + 1)) ;;
-                running) running_count=$((running_count + 1)) ;;
-                done)    done_count=$((done_count + 1)) ;;
-            esac
-        fi
-    done < "$STATE_FILE"
-
-    local out=""
-    if [[ $alert_count -gt 0 ]]; then
-        out="${out}#[fg=#f38ba8,bold]🚨 ${alert_count}#[default] "
-    fi
-    if [[ $watch_count -gt 0 ]]; then
-        out="${out}#[fg=#b4befe]👁️ ${watch_count}#[default] "
-    fi
-    if [[ $waiting_count -gt 0 ]]; then
-        out="${out}#[fg=#fab387,bold]🤖 ⏳ ${waiting_count}#[default] "
-    fi
-    if [[ $running_count -gt 0 ]]; then
-        out="${out}#[fg=#a6e3a1]🤖 ⚡ ${running_count}#[default] "
-    fi
-    if [[ $done_count -gt 0 ]]; then
-        out="${out}#[fg=#89b4fa,bold]🤖 ✓ ${done_count}#[default] "
-    fi
-
-    if [[ -n "$out" ]]; then
-        echo -n "${out}"
-    fi
-}
-
-get_attention_list() {
-    if [[ ! -s "$STATE_FILE" ]] || ! grep -q '[^[:space:]]' "$STATE_FILE" 2>/dev/null; then
-        printf "%s│ %-16s │ %-24s │ %s\t%s\n" "👁️ Empty      " "[0:0.0]" "none" "No active vigils or agent alerts (Ctrl-b for all panes)" ""
-        return 0
-    fi
-
-    local lines_with_prio=()
-    while IFS=$'\t' read -r pane_id session_name window_index pane_index path command label kind state || [[ -n "$pane_id" ]]; do
-        [[ -z "$pane_id" ]] && continue
-        kind="${kind:-manual}"
-        state="${state:-watching}"
-
-        local badge=""
-        local prio=5
-        case "$kind" in
-            manual)
-                case "$state" in
-                    alert)
-                        badge="🚨 Alert      "
-                        prio=1
-                        ;;
-                    *)
-                        badge="👁️ Vigil      "
-                        prio=5
-                        ;;
-                esac
-                ;;
-            auto)
-                case "$state" in
-                    waiting)
-                        badge="🤖 ⏳ Waiting "
-                        prio=2
-                        ;;
-                    done)
-                        badge="🤖 ✓ Finished "
-                        prio=3
-                        ;;
-                    running)
-                        badge="🤖 ⚡ Running "
-                        prio=4
-                        ;;
-                    *)
-                        badge="🤖 $state      "
-                        prio=6
-                        ;;
-                esac
-                ;;
-        esac
-
-        local display_ctx="[$session_name:$window_index.$pane_index] $command"
-        if [[ ${#display_ctx} -gt 16 ]]; then
-            display_ctx="${display_ctx:0:13}..."
-        fi
-
-        local repo_name
-        repo_name=$(basename "$path")
-        if [[ ${#repo_name} -gt 24 ]]; then
-            repo_name="${repo_name:0:21}..."
-        fi
-
-        local display_label="$label"
-        if [[ ${#display_label} -gt 32 ]]; then
-            display_label="${display_label:0:29}..."
-        fi
-
-        lines_with_prio+=("$(printf "%d\t%s│ %-16s │ %-24s │ %s\t%s" "$prio" "$badge" "$display_ctx" "$repo_name" "$display_label" "$pane_id")")
-    done < "$STATE_FILE"
-
-    if [[ ${#lines_with_prio[@]} -gt 0 ]]; then
-        printf "%s\n" "${lines_with_prio[@]}" | sort -n -k1,1 | cut -f2-
-    fi
-}
-
-get_all_bots_list() {
-    declare -A bm_kind bm_state bm_label
-    local p_id s_name w_idx p_idx p_path p_cmd p_lbl p_k p_st
-    while IFS=$'\t' read -r p_id s_name w_idx p_idx p_path p_cmd p_lbl p_k p_st || [[ -n "$p_id" ]]; do
-        [[ -z "$p_id" ]] && continue
-        bm_kind["$p_id"]="${p_k:-manual}"
-        bm_state["$p_id"]="${p_st:-watching}"
-        bm_label["$p_id"]="${p_lbl}"
-    done < "$STATE_FILE"
-
-    local panes_list
-    panes_list=$(tmux list-panes -a -F '#{pane_id}|#{session_name}|#{window_index}|#{pane_index}|#{pane_current_path}|#{pane_current_command}' 2>/dev/null || true)
-
-    local count=0
-    while IFS='|' read -r pane_id sess win pane path cmd; do
-        [[ -z "$pane_id" ]] && continue
-
-        local badge=""
-        local label=""
-        local sentinel
-        resolve_sentinel "$cmd"
-        sentinel="$_resolved_sentinel"
-
-        if [[ -n "${bm_kind[$pane_id]:-}" ]]; then
-            if [[ "${bm_kind[$pane_id]}" == "manual" ]]; then
-                if [[ "${bm_state[$pane_id]}" == "alert" ]]; then
-                    badge="🚨 Alert      "
-                else
-                    badge="👁️ Vigil      "
-                fi
-                label="${bm_label[$pane_id]}"
-            else
-                case "${bm_state[$pane_id]}" in
-                    waiting) badge="🤖 ⏳ Waiting " ;;
-                    running) badge="🤖 ⚡ Running " ;;
-                    done)    badge="🤖 ✓ Finished " ;;
-                    *)       badge="🤖 ${bm_state[$pane_id]}      " ;;
-                esac
-                label="${bm_label[$pane_id]}"
-            fi
-        elif [[ "$sentinel" != "generic" ]]; then
-            badge="🤖 💤 Idle    "
-            label="idle in $(basename "$path")"
-        fi
-
-        if [[ -n "$badge" ]]; then
-            count=$((count + 1))
-            local display_ctx="[$sess:$win.$pane] $cmd"
-            if [[ ${#display_ctx} -gt 16 ]]; then
-                display_ctx="${display_ctx:0:13}..."
-            fi
-
-            local repo_name
-            repo_name=$(basename "$path")
-            if [[ ${#repo_name} -gt 24 ]]; then
-                repo_name="${repo_name:0:21}..."
-            fi
-
-            local display_label="$label"
-            if [[ ${#display_label} -gt 32 ]]; then
-                display_label="${display_label:0:29}..."
-            fi
-
-            printf "%s│ %-16s │ %-24s │ %s\t%s\n" "$badge" "$display_ctx" "$repo_name" "$display_label" "$pane_id"
-        fi
-    done <<< "$panes_list"
-
-    if [[ $count -eq 0 ]]; then
-        printf "%s│ %-16s │ %-24s │ %s\t%s\n" "🤖 Empty      " "[0:0.0]" "none" "No active agent sessions found on tmux server" ""
-    fi
-}
-
-get_sessions_list() {
-    declare -A sess_alerts sess_watches sess_waitings sess_runnings sess_dones sess_slots
-
-    if [[ -s "$SLOTS_FILE" ]]; then
-        local sl sn
-        while IFS=$'\t' read -r sl sn || [[ -n "$sl" ]]; do
-            [[ -z "$sl" || -z "$sn" ]] && continue
-            sess_slots["$sn"]=$(echo "$sl" | tr '[:lower:]' '[:upper:]')
-        done < "$SLOTS_FILE"
-    fi
-
-    local p_id s_name w_idx p_idx p_path p_cmd p_lbl p_k p_st
-    if [[ -s "$STATE_FILE" ]]; then
-        while IFS=$'\t' read -r p_id s_name w_idx p_idx p_path p_cmd p_lbl p_k p_st || [[ -n "$p_id" ]]; do
-            [[ -z "$p_id" || -z "$s_name" ]] && continue
-            p_k="${p_k:-manual}"
-            p_st="${p_st:-watching}"
-            if [[ "$p_k" == "manual" ]]; then
-                case "$p_st" in
-                    alert) sess_alerts["$s_name"]=$(( ${sess_alerts["$s_name"]:-0} + 1 )) ;;
-                    *)     sess_watches["$s_name"]=$(( ${sess_watches["$s_name"]:-0} + 1 )) ;;
-                esac
-            elif [[ "$p_k" == "auto" ]]; then
-                case "$p_st" in
-                    waiting) sess_waitings["$s_name"]=$(( ${sess_waitings["$s_name"]:-0} + 1 )) ;;
-                    running) sess_runnings["$s_name"]=$(( ${sess_runnings["$s_name"]:-0} + 1 )) ;;
-                    done)    sess_dones["$s_name"]=$(( ${sess_dones["$s_name"]:-0} + 1 )) ;;
-                esac
-            fi
-        done < "$STATE_FILE"
-    fi
-
-    local sessions_info
-    sessions_info=$(tmux list-sessions -F '#{session_name}|#{session_windows}|#{session_attached}|#{pane_current_path}|#{pane_current_command}|#{window_name}' 2>/dev/null || true)
-
-    if [[ -z "$sessions_info" ]]; then
-        printf "%s│ %-20s │ %-24s │ %s\t%s\n" "🪟 Empty      " "[0]" "none" "No active tmux sessions found" ""
-        return 0
-    fi
-
-    local lines_with_prio=()
-    while IFS='|' read -r s_name s_wins s_attached s_path s_cmd s_win_name; do
-        [[ -z "$s_name" ]] && continue
-
-        local a_cnt="${sess_alerts[$s_name]:-0}"
-        local wt_cnt="${sess_waitings[$s_name]:-0}"
-        local d_cnt="${sess_dones[$s_name]:-0}"
-        local r_cnt="${sess_runnings[$s_name]:-0}"
-        local w_cnt="${sess_watches[$s_name]:-0}"
-
-        local badges=""
-        local prio=6
-
-        if [[ $a_cnt -gt 0 ]]; then
-            badges="${badges}🚨 ${a_cnt} "
-            prio=1
-        fi
-        if [[ $wt_cnt -gt 0 ]]; then
-            badges="${badges}🤖 ⏳ ${wt_cnt} "
-            if [[ $prio -gt 2 ]]; then prio=2; fi
-        fi
-        if [[ $d_cnt -gt 0 ]]; then
-            badges="${badges}🤖 ✓ ${d_cnt} "
-            if [[ $prio -gt 3 ]]; then prio=3; fi
-        fi
-        if [[ $r_cnt -gt 0 ]]; then
-            badges="${badges}🤖 ⚡ ${r_cnt} "
-            if [[ $prio -gt 4 ]]; then prio=4; fi
-        fi
-        if [[ $w_cnt -gt 0 ]]; then
-            badges="${badges}👁️ ${w_cnt} "
-            if [[ $prio -gt 5 ]]; then prio=5; fi
-        fi
-
-        if [[ -z "$badges" ]]; then
-            badges="🌱 Clean      "
-        else
-            badges="${badges% }"
-            local emojis="${badges//[^🚨🤖⏳🌱]/}"
-            local visual_width=$(( ${#badges} + ${#emojis} ))
-            local pad=$(( 14 - visual_width ))
-            if [[ $pad -gt 0 ]]; then
-                badges=$(printf "%s%*s" "$badges" "$pad" "")
-            fi
-        fi
-
-        local slot_badge="   "
-        if [[ -n "${sess_slots[$s_name]:-}" ]]; then
-            slot_badge="[${sess_slots[$s_name]}]"
-        fi
-
-        local display_sess="${slot_badge} [${s_name}]"
-        if [[ "$s_attached" -gt 0 ]]; then
-            display_sess="${slot_badge} [${s_name}]*"
-        fi
-        if [[ ${#display_sess} -gt 20 ]]; then
-            display_sess="${display_sess:0:17}..."
-        fi
-
-        local repo_name
-        repo_name=$(basename "$s_path")
-        if [[ ${#repo_name} -gt 24 ]]; then
-            repo_name="${repo_name:0:21}..."
-        fi
-
-        local win_noun="windows"
-        [[ "$s_wins" -eq 1 ]] && win_noun="window"
-        local display_details="${s_wins} ${win_noun} (active: ${s_cmd:-zsh} in ${s_win_name:-win})"
-        if [[ ${#display_details} -gt 38 ]]; then
-            display_details="${display_details:0:35}..."
-        fi
-
-        lines_with_prio+=("$(printf "%d\t%s│ %-20s │ %-24s │ %s\t%s" "$prio" "$badges" "$display_sess" "$repo_name" "$display_details" "$s_name")")
-    done <<< "$sessions_info"
-
-    if [[ ${#lines_with_prio[@]} -gt 0 ]]; then
-        printf "%s\n" "${lines_with_prio[@]}" | sort -n -k1,1 | cut -f2-
-    fi
-}
-
-assign_slot() {
-    local slot="${1:-}" session="${2:-}"
-    if [[ -z "$slot" ]]; then
-        echo "Error: slot identifier required (e.g. h, j, k, l)" >&2
-        return 1
-    fi
-    slot=$(echo "$slot" | tr '[:upper:]' '[:lower:]')
-
-    if [[ -z "$session" ]]; then
-        session=$(tmux display-message -p '#{session_name}' 2>/dev/null || true)
-    fi
-    if [[ -z "$session" ]]; then
-        echo "Error: target session required or active tmux session needed" >&2
-        return 1
-    fi
-
-    local tmp_file="${SLOTS_FILE}.tmp.$$"
-    mkdir -p "$(dirname "$SLOTS_FILE")" 2>/dev/null || true
-
-    if [[ -f "$SLOTS_FILE" ]]; then
-        awk -F'\t' -v s="$slot" -v n="$session" 'tolower($1) != tolower(s) && $2 != n { print $0 }' "$SLOTS_FILE" > "$tmp_file" 2>/dev/null || true
-    fi
-    printf "%s\t%s\n" "$slot" "$session" >> "$tmp_file"
-    mv "$tmp_file" "$SLOTS_FILE"
-
-    local upper_slot
-    upper_slot=$(echo "$slot" | tr '[:lower:]' '[:upper:]')
-    tmux display-message "📌 Pinned [${session}] to slot [${upper_slot}]" 2>/dev/null || true
-}
-
-unassign_slot() {
+preview_pane() {
     local target="${1:-}"
     if [[ -z "$target" ]]; then
-        target=$(tmux display-message -p '#{session_name}' 2>/dev/null || true)
-    fi
-    [[ -z "$target" ]] && return 0
-
-    local tmp_file="${SLOTS_FILE}.tmp.$$"
-    if [[ -f "$SLOTS_FILE" ]]; then
-        awk -F'\t' -v t="$target" 'tolower($1) != tolower(t) && $2 != t { print $0 }' "$SLOTS_FILE" > "$tmp_file" 2>/dev/null || true
-        mv "$tmp_file" "$SLOTS_FILE"
-    fi
-    tmux display-message "Unpinned [${target}]" 2>/dev/null || true
-}
-
-jump_slot() {
-    local slot="${1:-}"
-    local source_pane="${2:-}"
-    if [[ -z "$slot" ]]; then
-        echo "Error: slot identifier required (e.g. h, j, k, l)" >&2
-        return 1
-    fi
-    slot=$(echo "$slot" | tr '[:upper:]' '[:lower:]')
-    local upper_slot
-    upper_slot=$(echo "$slot" | tr '[:lower:]' '[:upper:]')
-
-    local target_session=""
-    if [[ -f "$SLOTS_FILE" ]]; then
-        target_session=$(awk -F'\t' -v s="$slot" 'tolower($1) == tolower(s) { print $2; exit }' "$SLOTS_FILE" 2>/dev/null || true)
-    fi
-
-    if [[ -z "$target_session" ]]; then
-        tmux display-message "Slot [${upper_slot}] is unassigned (open Glance -> Ctrl-s -> Ctrl-p to pin)" 2>/dev/null || true
+        echo "No target selected"
         return 0
     fi
-
-    if ! tmux has-session -t "$target_session" 2>/dev/null; then
-        tmux display-message "Slot [${upper_slot}] session [${target_session}] is not running" 2>/dev/null || true
-        return 0
-    fi
-
-    if [[ -z "$source_pane" ]]; then
-        source_pane=$(tmux display-message -p '#{pane_id}' 2>/dev/null || true)
-    fi
-    local session_active_pane
-    session_active_pane=$(tmux display-message -p -t "$target_session" '#{pane_id}' 2>/dev/null || true)
-    if [[ -n "$source_pane" && -n "$session_active_pane" ]]; then
-        record_jump "$source_pane" "$session_active_pane"
-    fi
-
-    tmux switch-client -t "$target_session" 2>/dev/null || true
+    trap 'exit 0' INT TERM HUP
+    local prev_hash=""
+    while true; do
+        if ! tmux has-session -t "$target" 2>/dev/null; then
+            printf '\033[2J\033[H'
+            echo "Target $target closed or inactive."
+            return 0
+        fi
+        local content
+        content=$(tmux capture-pane -e -p -t "$target" 2>/dev/null \
+            | awk '{lines[NR]=$0} END {while (NR>0 && lines[NR] ~ /^[[:space:]]*$/) NR--; for (i=1; i<=NR; i++) print lines[i]}' \
+            | tail -n 35)
+        local curr_hash
+        curr_hash=$(echo "$content" | (md5 -q 2>/dev/null || md5sum 2>/dev/null | cut -d' ' -f1 || cksum | cut -d' ' -f1))
+        if [[ "$curr_hash" != "$prev_hash" ]]; then
+            printf '\033[2J\033[H%s\n' "$content"
+            prev_hash="$curr_hash"
+        fi
+        sleep 0.5
+    done
 }
 
+# shellcheck disable=SC2120
 pin_interactive() {
     local target="${1:-}"
     local target_session=""
@@ -1140,15 +82,10 @@ pin_interactive() {
     else
         target_session="$target"
     fi
-
-    if [[ -z "$target_session" ]]; then
-        return 0
-    fi
+    [[ -z "$target_session" ]] && return 0
 
     local current_slot=""
-    if [[ -f "$SLOTS_FILE" ]]; then
-        current_slot=$(awk -F'\t' -v s="$target_session" '$2 == s { print toupper($1); exit }' "$SLOTS_FILE" 2>/dev/null || true)
-    fi
+    current_slot=$("$ENGINE" query-slot "$target_session" 2>/dev/null || true)
 
     local prompt_msg="📌 Pin [${target_session}] to Harpoon slot (h/j/k/l, Space/Del to unpin, Esc to cancel): "
     if [[ -n "$current_slot" ]]; then
@@ -1161,345 +98,15 @@ pin_interactive() {
 
     case "$key" in
         [hHjJkKlL1-9])
-            assign_slot "$key" "$target_session"
+            "$ENGINE" assign-slot "$key" "$target_session"
             ;;
         ' '|$'\177'|$'\b')
-            unassign_slot "$target_session"
+            "$ENGINE" unassign-slot "$target_session"
             ;;
         *)
             ;;
     esac
 }
-
-record_jump() {
-    local source="${1:-}"
-    local dest="${2:-}"
-    if [[ -z "$source" || -z "$dest" || "$source" == "$dest" ]]; then
-        return 0
-    fi
-
-    # Ensure source pane still exists
-    local src_check
-    src_check=$(tmux display-message -p -t "$source" "#{pane_id}" 2>/dev/null || true)
-    if [[ "$src_check" != "$source" ]]; then
-        return 0
-    fi
-
-    mkdir -p "$(dirname "$JUMP_BACK_FILE")" 2>/dev/null || true
-
-    local entries=()
-    if [[ -f "$JUMP_BACK_FILE" ]]; then
-        while IFS= read -r p; do
-            [[ -n "$p" ]] && entries+=("$p")
-        done < "$JUMP_BACK_FILE"
-    fi
-
-    if [[ ${#entries[@]} -eq 0 || "${entries[0]}" != "$source" ]]; then
-        entries=("$source" "${entries[@]}")
-    fi
-
-    if [[ ${#entries[@]} -gt 50 ]]; then
-        entries=("${entries[@]:0:50}")
-    fi
-
-    local tmp_file="${JUMP_BACK_FILE}.tmp.$$"
-    printf "%s\n" "${entries[@]}" > "$tmp_file" 2>/dev/null || true
-    mv "$tmp_file" "$JUMP_BACK_FILE" 2>/dev/null || true
-
-    : > "$JUMP_FORWARD_FILE" 2>/dev/null || true
-}
-
-jump_back() {
-    local current_pane_id="${1:-}"
-    if [[ -z "$current_pane_id" ]]; then
-        current_pane_id=$(tmux display-message -p '#{pane_id}' 2>/dev/null || true)
-    fi
-
-    if [[ ! -f "$JUMP_BACK_FILE" || ! -s "$JUMP_BACK_FILE" ]]; then
-        tmux display-message "Jump list: at oldest location" 2>/dev/null || true
-        return 0
-    fi
-
-    local back_entries=()
-    while IFS= read -r p; do
-        [[ -n "$p" ]] && back_entries+=("$p")
-    done < "$JUMP_BACK_FILE"
-
-    local target_pane=""
-    local remaining_back=()
-
-    local i=0
-    for (( i=0; i<${#back_entries[@]}; i++ )); do
-        local cand="${back_entries[i]}"
-        local check
-        check=$(tmux display-message -p -t "$cand" "#{pane_id}" 2>/dev/null || true)
-        if [[ "$check" == "$cand" && "$cand" != "$current_pane_id" ]]; then
-            target_pane="$cand"
-            remaining_back=("${back_entries[@]:$((i + 1))}")
-            break
-        fi
-    done
-
-    if [[ -z "$target_pane" ]]; then
-        : > "$JUMP_BACK_FILE"
-        tmux display-message "Jump list: at oldest location" 2>/dev/null || true
-        return 0
-    fi
-
-    local tmp_file="${JUMP_BACK_FILE}.tmp.$$"
-    if [[ ${#remaining_back[@]} -gt 0 ]]; then
-        printf "%s\n" "${remaining_back[@]}" > "$tmp_file" 2>/dev/null || true
-    else
-        : > "$tmp_file"
-    fi
-    mv "$tmp_file" "$JUMP_BACK_FILE" 2>/dev/null || true
-
-    if [[ -n "$current_pane_id" ]]; then
-        local fwd_entries=()
-        if [[ -f "$JUMP_FORWARD_FILE" ]]; then
-            while IFS= read -r p; do
-                [[ -n "$p" ]] && fwd_entries+=("$p")
-            done < "$JUMP_FORWARD_FILE"
-        fi
-        if [[ ${#fwd_entries[@]} -eq 0 || "${fwd_entries[0]}" != "$current_pane_id" ]]; then
-            fwd_entries=("$current_pane_id" "${fwd_entries[@]}")
-        fi
-        if [[ ${#fwd_entries[@]} -gt 50 ]]; then
-            fwd_entries=("${fwd_entries[@]:0:50}")
-        fi
-        local tmp_fwd="${JUMP_FORWARD_FILE}.tmp.$$"
-        printf "%s\n" "${fwd_entries[@]}" > "$tmp_fwd" 2>/dev/null || true
-        mv "$tmp_fwd" "$JUMP_FORWARD_FILE" 2>/dev/null || true
-    fi
-
-    tmux select-pane -t "$target_pane" 2>/dev/null || true
-    tmux select-window -t "$target_pane" 2>/dev/null || true
-    tmux switch-client -t "$target_pane" 2>/dev/null || true
-    on_focus "$target_pane"
-
-    local loc
-    loc=$(tmux display-message -p -t "$target_pane" "#{session_name}:#{window_index}.#{pane_index}" 2>/dev/null || echo "$target_pane")
-    tmux display-message "Jumped back to [${loc}]" 2>/dev/null || true
-}
-
-jump_forward() {
-    local current_pane_id="${1:-}"
-    if [[ -z "$current_pane_id" ]]; then
-        current_pane_id=$(tmux display-message -p '#{pane_id}' 2>/dev/null || true)
-    fi
-
-    if [[ ! -f "$JUMP_FORWARD_FILE" || ! -s "$JUMP_FORWARD_FILE" ]]; then
-        tmux display-message "Jump list: at newest location" 2>/dev/null || true
-        return 0
-    fi
-
-    local fwd_entries=()
-    while IFS= read -r p; do
-        [[ -n "$p" ]] && fwd_entries+=("$p")
-    done < "$JUMP_FORWARD_FILE"
-
-    local target_pane=""
-    local remaining_fwd=()
-
-    local i=0
-    for (( i=0; i<${#fwd_entries[@]}; i++ )); do
-        local cand="${fwd_entries[i]}"
-        local check
-        check=$(tmux display-message -p -t "$cand" "#{pane_id}" 2>/dev/null || true)
-        if [[ "$check" == "$cand" && "$cand" != "$current_pane_id" ]]; then
-            target_pane="$cand"
-            remaining_fwd=("${fwd_entries[@]:$((i + 1))}")
-            break
-        fi
-    done
-
-    if [[ -z "$target_pane" ]]; then
-        : > "$JUMP_FORWARD_FILE"
-        tmux display-message "Jump list: at newest location" 2>/dev/null || true
-        return 0
-    fi
-
-    local tmp_fwd="${JUMP_FORWARD_FILE}.tmp.$$"
-    if [[ ${#remaining_fwd[@]} -gt 0 ]]; then
-        printf "%s\n" "${remaining_fwd[@]}" > "$tmp_fwd" 2>/dev/null || true
-    else
-        : > "$tmp_fwd"
-    fi
-    mv "$tmp_fwd" "$JUMP_FORWARD_FILE" 2>/dev/null || true
-
-    if [[ -n "$current_pane_id" ]]; then
-        local back_entries=()
-        if [[ -f "$JUMP_BACK_FILE" ]]; then
-            while IFS= read -r p; do
-                [[ -n "$p" ]] && back_entries+=("$p")
-            done < "$JUMP_BACK_FILE"
-        fi
-        if [[ ${#back_entries[@]} -eq 0 || "${back_entries[0]}" != "$current_pane_id" ]]; then
-            back_entries=("$current_pane_id" "${back_entries[@]}")
-        fi
-        if [[ ${#back_entries[@]} -gt 50 ]]; then
-            back_entries=("${back_entries[@]:0:50}")
-        fi
-        local tmp_back="${JUMP_BACK_FILE}.tmp.$$"
-        printf "%s\n" "${back_entries[@]}" > "$tmp_back" 2>/dev/null || true
-        mv "$tmp_back" "$JUMP_BACK_FILE" 2>/dev/null || true
-    fi
-
-    tmux select-pane -t "$target_pane" 2>/dev/null || true
-    tmux select-window -t "$target_pane" 2>/dev/null || true
-    tmux switch-client -t "$target_pane" 2>/dev/null || true
-    on_focus "$target_pane"
-
-    local loc
-    loc=$(tmux display-message -p -t "$target_pane" "#{session_name}:#{window_index}.#{pane_index}" 2>/dev/null || echo "$target_pane")
-    tmux display-message "Jumped forward to [${loc}]" 2>/dev/null || true
-}
-
-clear_history() {
-    mkdir -p "$(dirname "$JUMP_BACK_FILE")" 2>/dev/null || true
-    : > "$JUMP_BACK_FILE"
-    : > "$JUMP_FORWARD_FILE"
-    tmux display-message "Jump history cleared" 2>/dev/null || true
-}
-
-_format_history_line() {
-    local badge="$1" target_pane="$2"
-    local p_info
-    p_info=$(tmux display-message -p -t "$target_pane" '#{pane_id}|#{session_name}|#{window_index}|#{pane_index}|#{pane_current_path}|#{pane_current_command}' 2>/dev/null || true)
-    [[ -z "$p_info" ]] && return 0
-
-    local p_id sess win pane path cmd
-    IFS='|' read -r p_id sess win pane path cmd <<< "$p_info"
-    [[ -z "$p_id" ]] && return 0
-
-    local display_ctx="[$sess:$win.$pane] $cmd"
-    if [[ ${#display_ctx} -gt 16 ]]; then
-        display_ctx="${display_ctx:0:13}..."
-    fi
-
-    local repo_name
-    repo_name=$(basename "$path")
-    if [[ ${#repo_name} -gt 24 ]]; then
-        repo_name="${repo_name:0:21}..."
-    fi
-
-    local display_label="$path"
-    if [[ ${#display_label} -gt 32 ]]; then
-        display_label="${display_label:0:29}..."
-    fi
-
-    printf "%s│ %-16s │ %-24s │ %s\t%s\n" "$badge" "$display_ctx" "$repo_name" "$display_label" "$p_id"
-}
-
-get_history_list() {
-    local current_pane_id
-    current_pane_id=$(tmux display-message -p '#{pane_id}' 2>/dev/null || true)
-
-    local fwd_panes=()
-    if [[ -f "$JUMP_FORWARD_FILE" ]]; then
-        while IFS= read -r pane_id; do
-            [[ -z "$pane_id" ]] && continue
-            local check
-            check=$(tmux display-message -p -t "$pane_id" '#{pane_id}' 2>/dev/null || true)
-            if [[ "$check" == "$pane_id" && "$pane_id" != "$current_pane_id" ]]; then
-                fwd_panes+=("$pane_id")
-            fi
-        done < "$JUMP_FORWARD_FILE"
-    fi
-
-    local back_panes=()
-    if [[ -f "$JUMP_BACK_FILE" ]]; then
-        while IFS= read -r pane_id; do
-            [[ -z "$pane_id" ]] && continue
-            local check
-            check=$(tmux display-message -p -t "$pane_id" '#{pane_id}' 2>/dev/null || true)
-            if [[ "$check" == "$pane_id" && "$pane_id" != "$current_pane_id" ]]; then
-                back_panes+=("$pane_id")
-            fi
-        done < "$JUMP_BACK_FILE"
-    fi
-
-    local num_fwd=${#fwd_panes[@]}
-    local num_back=${#back_panes[@]}
-
-    # 1. Forward entries in reverse order so FWD #1 is immediate neighbor above CUR
-    local i
-    for (( i=num_fwd-1; i>=0; i-- )); do
-        local f_idx=$((i + 1))
-        local f_badge
-        f_badge=$(printf "⏭️  FWD #%-2d   " "$f_idx")
-        _format_history_line "$f_badge" "${fwd_panes[i]}"
-    done
-
-    # 2. Current active pane
-    if [[ -n "$current_pane_id" ]]; then
-        local c_badge="📍 CUR       "
-        _format_history_line "$c_badge" "$current_pane_id"
-    fi
-
-    # 3. Back entries in chronological order (BACK #1 is immediate neighbor below CUR)
-    for (( i=0; i<num_back; i++ )); do
-        local b_idx=$((i + 1))
-        local b_badge
-        b_badge=$(printf "⏮️  BACK #%-2d  " "$b_idx")
-        _format_history_line "$b_badge" "${back_panes[i]}"
-    done
-
-    # 4. Fallback if no panes at all could be resolved
-    if [[ -z "$current_pane_id" && $num_fwd -eq 0 && $num_back -eq 0 ]]; then
-        printf "%s│ %-16s │ %-24s │ %s\t%s\n" "🕒 Empty      " "[0:0.0]" "none" "No jump history recorded yet" ""
-    fi
-}
-
-get_history_cursor_pos() {
-    local current_pane_id
-    current_pane_id=$(tmux display-message -p '#{pane_id}' 2>/dev/null || true)
-
-    local num_fwd=0
-    if [[ -f "$JUMP_FORWARD_FILE" ]]; then
-        while IFS= read -r p; do
-            [[ -z "$p" ]] && continue
-            local check
-            check=$(tmux display-message -p -t "$p" '#{pane_id}' 2>/dev/null || true)
-            if [[ "$check" == "$p" && "$p" != "$current_pane_id" ]]; then
-                num_fwd=$((num_fwd + 1))
-            fi
-        done < "$JUMP_FORWARD_FILE"
-    fi
-
-    local num_back=0
-    if [[ -f "$JUMP_BACK_FILE" ]]; then
-        while IFS= read -r p; do
-            [[ -z "$p" ]] && continue
-            local check
-            check=$(tmux display-message -p -t "$p" '#{pane_id}' 2>/dev/null || true)
-            if [[ "$check" == "$p" && "$p" != "$current_pane_id" ]]; then
-                num_back=$((num_back + 1))
-            fi
-        done < "$JUMP_BACK_FILE"
-    fi
-
-    if [[ $num_back -gt 0 ]]; then
-        echo "$((num_fwd + 2))"
-    elif [[ $num_fwd -gt 0 ]]; then
-        echo "$num_fwd"
-    else
-        echo "1"
-    fi
-}
-
-eval_history_action() {
-    local current_mode
-    current_mode=$(tmux show-option -gv @glance_mode 2>/dev/null || true)
-    if [[ "$current_mode" == "history" ]]; then
-        echo "reload($SELF_BIN list-raw toggle-history)+wait+pos(1)"
-    else
-        local target_pos
-        target_pos=$(get_history_cursor_pos)
-        echo "reload($SELF_BIN list-raw toggle-history)+wait+pos($target_pos)"
-    fi
-}
-
 
 cheat_sheet() {
     printf '\033[2J\033[H'
@@ -1530,96 +137,7 @@ EOF
     IFS= read -r -s -n 1 _ || true
 }
 
-list_raw() {
-    local req_mode="${1:-toggle}"
-    local current_mode
-    current_mode=$(tmux show-option -gv @glance_mode 2>/dev/null || tmux show-option -gv @bookmark_mode 2>/dev/null || true)
-    current_mode="${current_mode:-attention}"
-
-    local target_mode
-    if [[ "$req_mode" == "current" ]]; then
-        target_mode="$current_mode"
-    elif [[ "$req_mode" == "toggle" ]]; then
-        if [[ "$current_mode" == "attention" ]]; then
-            target_mode="all"
-        elif [[ "$current_mode" == "all" ]]; then
-            target_mode="attention"
-        else
-            target_mode="attention"
-        fi
-    elif [[ "$req_mode" == "toggle-sessions" || "$req_mode" == "sessions-toggle" ]]; then
-        if [[ "$current_mode" == "sessions" ]]; then
-            local prev_mode
-            prev_mode=$(tmux show-option -gv @glance_prev_mode 2>/dev/null || true)
-            target_mode="${prev_mode:-attention}"
-            [[ "$target_mode" == "sessions" ]] && target_mode="attention"
-        else
-            tmux set-option -g @glance_prev_mode "$current_mode" 2>/dev/null || true
-            target_mode="sessions"
-        fi
-    elif [[ "$req_mode" == "toggle-history" || "$req_mode" == "history-toggle" ]]; then
-        if [[ "$current_mode" == "history" ]]; then
-            local prev_mode
-            prev_mode=$(tmux show-option -gv @glance_prev_mode 2>/dev/null || true)
-            target_mode="${prev_mode:-attention}"
-            [[ "$target_mode" == "history" ]] && target_mode="attention"
-        else
-            tmux set-option -g @glance_prev_mode "$current_mode" 2>/dev/null || true
-            target_mode="history"
-        fi
-    else
-        target_mode="$req_mode"
-    fi
-
-    tmux set-option -g @glance_mode "$target_mode" 2>/dev/null || true
-
-    if [[ "$target_mode" == "all" ]]; then
-        get_all_bots_list
-    elif [[ "$target_mode" == "sessions" ]]; then
-        get_sessions_list
-    elif [[ "$target_mode" == "history" ]]; then
-        get_history_list
-    else
-        get_attention_list
-    fi
-}
-
-# Actively stream/tail a tmux pane or session for live fzf preview
-preview_pane() {
-    local target="${1:-}"
-    if [[ -z "$target" ]]; then
-        echo "No target selected"
-        return 0
-    fi
-
-    # Handle graceful exit when fzf terminates preview subshell
-    trap 'exit 0' INT TERM HUP
-
-    local prev_hash=""
-    while true; do
-        if ! tmux has-session -t "$target" 2>/dev/null; then
-            printf '\033[2J\033[H'
-            echo "Target $target closed or inactive."
-            return 0
-        fi
-
-        local content
-        content=$(tmux capture-pane -e -p -t "$target" 2>/dev/null \
-            | awk '{lines[NR]=$0} END {while (NR>0 && lines[NR] ~ /^[[:space:]]*$/) NR--; for (i=1; i<=NR; i++) print lines[i]}' \
-            | tail -n 35)
-
-        local curr_hash
-        curr_hash=$(echo "$content" | (md5 -q 2>/dev/null || md5sum 2>/dev/null | cut -d' ' -f1 || cksum | cut -d' ' -f1))
-
-        if [[ "$curr_hash" != "$prev_hash" ]]; then
-            printf '\033[2J\033[H%s\n' "$content"
-            prev_hash="$curr_hash"
-        fi
-
-        sleep 0.5
-    done
-}
-
+# --- fzf popup launcher ---
 # shellcheck disable=SC2016
 list_bookmarks() {
     local req_mode="${1:-auto}"
@@ -1629,24 +147,18 @@ list_bookmarks() {
     fi
 
     local initial_mode="attention"
-
-    if [[ "$req_mode" == "all" ]]; then
-        initial_mode="all"
-    elif [[ "$req_mode" == "sessions" ]]; then
-        initial_mode="sessions"
-    elif [[ "$req_mode" == "history" ]]; then
-        initial_mode="history"
-    elif [[ "$req_mode" == "attention" ]]; then
-        initial_mode="attention"
-    elif [[ ! -s "$STATE_FILE" ]] || ! grep -q '[^[:space:]]' "$STATE_FILE" 2>/dev/null; then
-        initial_mode="all"
-    fi
-
-    if [[ "$initial_mode" == "attention" && "$req_mode" == "auto" ]]; then
-        if [[ ! -s "$STATE_FILE" ]] || ! grep -q '[^[:space:]]' "$STATE_FILE" 2>/dev/null; then
-            initial_mode="all"
-        fi
-    fi
+    case "$req_mode" in
+        all)      initial_mode="all" ;;
+        sessions) initial_mode="sessions" ;;
+        history)  initial_mode="history" ;;
+        attention) initial_mode="attention" ;;
+        auto)
+            # Default to all-panes if state file is empty (nothing tracked yet).
+            if ! "$ENGINE" list-raw current 2>/dev/null | grep -q '[^[:space:]]'; then
+                initial_mode="all"
+            fi
+            ;;
+    esac
 
     tmux set-option -g @glance_mode "$initial_mode" 2>/dev/null || true
 
@@ -1654,21 +166,16 @@ list_bookmarks() {
     if [[ -n "${TMUX_GLANCE_FZF_FILTER:-}" ]]; then
         fzf_extra_args+=(--filter="$TMUX_GLANCE_FZF_FILTER")
     else
-        # In interactive mode: paint from cached state immediately, then trigger a
-        # background scan+reload via fzf's start: event so the popup opens fast.
-        fzf_extra_args+=(--bind "start:reload($SELF_BIN scan force 2>/dev/null; $SELF_BIN list-raw current 2>/dev/null)+pos(1)")
+        fzf_extra_args+=(--bind "start:reload($ENGINE scan force 2>/dev/null; $ENGINE list-raw current 2>/dev/null)+pos(1)")
     fi
     if [[ "$initial_mode" == "history" ]]; then
         local init_pos
-        init_pos=$(get_history_cursor_pos)
+        init_pos=$("$ENGINE" history-cursor-pos 2>/dev/null || echo 1)
         fzf_extra_args+=(--bind "load:pos($init_pos)")
     fi
 
-    # Paint immediately from cached state, then trigger a background scan+reload
-    # via fzf's start: event so the popup opens without a blocking scan.
-    # shellcheck disable=SC2016
     local selected
-    selected=$(list_raw "$initial_mode" | fzf \
+    selected=$("$ENGINE" list-raw "$initial_mode" | fzf \
         ${fzf_extra_args[@]+"${fzf_extra_args[@]}"} \
         --delimiter=$'\t' \
         --with-nth=1 \
@@ -1677,38 +184,33 @@ list_bookmarks() {
         --layout=reverse \
         --border=rounded \
         --info=inline \
-        --bind "ctrl-b:reload($SELF_BIN list-raw toggle)+wait+pos(1)" \
-        --bind "ctrl-s:reload($SELF_BIN list-raw toggle-sessions)+wait+pos(1)" \
-        --bind "ctrl-h:transform($SELF_BIN eval-history-action)" \
-        --bind "ctrl-x:execute($SELF_BIN clear-history)+reload($SELF_BIN list-raw current)+wait+pos(1)" \
-        --bind "ctrl-p:execute($SELF_BIN pin-interactive {2})+reload($SELF_BIN list-raw current)" \
+        --bind "ctrl-b:reload($ENGINE list-raw toggle)+wait+pos(1)" \
+        --bind "ctrl-s:reload($ENGINE list-raw toggle-sessions)+wait+pos(1)" \
+        --bind "ctrl-h:transform($ENGINE eval-history-action)" \
+        --bind "ctrl-x:execute($ENGINE clear-history)+reload($ENGINE list-raw current)+wait+pos(1)" \
+        --bind "ctrl-p:execute($SELF_BIN pin-interactive {2})+reload($ENGINE list-raw current)" \
         --bind "ctrl-/:execute($SELF_BIN cheat-sheet)" \
         --bind "f1:execute($SELF_BIN cheat-sheet)" \
         --preview "\"$SELF_BIN\" preview {2}" \
         --preview-window='down:60%:wrap:follow' \
-    )
+    ) || true
 
     if [[ -n "$selected" ]]; then
-        local target
-        target=$(echo "$selected" | cut -f2)
+        local target="${selected##*$'\t'}"
         if [[ -n "$target" && "$target" == "$source_pane" ]]; then
-            # Selected current active pane (safe no-op)
             return 0
         fi
         if [[ -n "$target" ]] && tmux has-session -t "$target" 2>/dev/null; then
             if [[ "$target" =~ ^% ]]; then
-                record_jump "$source_pane" "$target"
-                tmux select-pane -t "$target"
-                tmux select-window -t "$target"
-                tmux switch-client -t "$target"
-                on_focus "$target"
+                "$ENGINE" record-jump "$source_pane" "$target" 2>/dev/null || true
+                tmux select-pane -t "$target" \; select-window -t "$target" \; switch-client -t "$target" \; display-popup -C 2>/dev/null || true
             else
                 local sess_active_pane
                 sess_active_pane=$(tmux display-message -p -t "$target" '#{pane_id}' 2>/dev/null || true)
                 if [[ -n "$source_pane" && -n "$sess_active_pane" ]]; then
-                    record_jump "$source_pane" "$sess_active_pane"
+                    "$ENGINE" record-jump "$source_pane" "$sess_active_pane" 2>/dev/null || true
                 fi
-                tmux switch-client -t "$target"
+                tmux switch-client -t "$target" \; display-popup -C 2>/dev/null || true
             fi
         elif [[ -n "$target" ]]; then
             tmux display-message "Target pane or session no longer exists."
@@ -1716,40 +218,25 @@ list_bookmarks() {
     fi
 }
 
+# --- Command dispatch ---
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     case "${1:-list}" in
-        add)
-            shift
-            with_lock add_bookmark "$*"
-            ;;
-        remove)
-            with_lock remove_bookmark
-            ;;
-        toggle-vigil)
-            shift || true
-            with_lock toggle_vigil "$*"
-            ;;
-        is-watched|is-pinned)
-            is_watched
-            ;;
-        scan)
-            shift || true
-            with_lock scan_agents "force"
-            ;;
-        on-focus)
-            shift
-            with_lock on_focus "${1:-}"
-            ;;
-        status)
-            with_lock status_summary
-            ;;
+        # Pure bash commands (no engine needed)
         preview)
             shift
             preview_pane "${1:-}"
             ;;
-        list-raw)
+        pin-interactive)
             shift
-            list_raw "${1:-toggle}"
+            pin_interactive "${1:-}"
+            ;;
+        cheat-sheet|help-modal)
+            cheat_sheet
+            ;;
+        # fzf popup launchers (bash + engine for data)
+        list)
+            shift || true
+            list_bookmarks "${1:-auto}" "${2:-}"
             ;;
         list-all)
             shift || true
@@ -1763,54 +250,9 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
             shift || true
             list_bookmarks "history" "${1:-}"
             ;;
-        assign-slot)
-            shift
-            assign_slot "${1:-}" "${2:-}"
-            ;;
-        unassign-slot)
-            shift
-            unassign_slot "${1:-}"
-            ;;
-        jump-slot)
-            shift
-            jump_slot "${1:-}" "${2:-}"
-            ;;
-        pin-interactive)
-            shift
-            pin_interactive "${1:-}"
-            ;;
-        cheat-sheet|help-modal)
-            cheat_sheet
-            ;;
-        jump-back|undo)
-            shift || true
-            with_lock jump_back "${1:-}"
-            ;;
-        jump-forward|redo)
-            shift || true
-            with_lock jump_forward "${1:-}"
-            ;;
-        record-jump)
-            shift || true
-            with_lock record_jump "${1:-}" "${2:-}"
-            ;;
-        clear-history|clear-jump-history)
-            shift || true
-            with_lock clear_history
-            ;;
-        eval-history-action)
-            eval_history_action
-            ;;
-        history-cursor-pos)
-            get_history_cursor_pos
-            ;;
-        list)
-            shift || true
-            list_bookmarks "${1:-auto}" "${2:-}"
-            ;;
+        # Everything else → glance-engine
         *)
-            echo "Usage: $0 {add|remove|toggle-vigil|is-watched|scan|on-focus|status|preview|list-raw|list-all|list-sessions|list-history|list|assign-slot|unassign-slot|jump-slot|pin-interactive|cheat-sheet|jump-back|jump-forward|record-jump|clear-history|eval-history-action|history-cursor-pos}"
-            exit 1
+            exec "$ENGINE" "$@"
             ;;
     esac
 fi
