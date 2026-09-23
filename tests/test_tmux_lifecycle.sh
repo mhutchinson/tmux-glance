@@ -71,7 +71,7 @@ tmux -S "$SOCK" select-window -t test-sess:win2
 echo -n "Test 4: Output change in background triggers dynamic Alert... "
 tmux -S "$SOCK" send-keys -t "$pane1_id" "Build completed successfully!" C-m
 # Run scan to detect change
-tmux -S "$SOCK" run-shell "bash '$BIN' scan"
+tmux -S "$SOCK" run-shell "bash '$BIN' scan force"
 status_out=$(get_status)
 if [[ "$status_out" =~ 🚨[[:space:]]+1 ]]; then
     echo "PASS (Upgraded to: $status_out)"
@@ -125,7 +125,7 @@ tmux -S "$SOCK" select-window -t test-sess:win2
 tmux -S "$SOCK" send-keys -t "$pane3_id" "Welcome to Antigravity" C-m
 tmux -S "$SOCK" send-keys -t "$pane3_id" "? for shortcuts" C-m
 sleep 0.2
-tmux -S "$SOCK" run-shell "bash '$BIN' scan"
+tmux -S "$SOCK" run-shell "bash '$BIN' scan force"
 status_out=$(get_status)
 if [[ -z "$status_out" ]]; then
     echo "PASS (Agent is idle and quiet)"
@@ -141,7 +141,7 @@ tmux -S "$SOCK" send-keys -t "$pane3_id" "Run this command?" C-m
 tmux -S "$SOCK" send-keys -t "$pane3_id" "> 1. Yes, run command" C-m
 tmux -S "$SOCK" send-keys -t "$pane3_id" "esc to cancel" C-m
 sleep 0.2
-tmux -S "$SOCK" run-shell "bash '$BIN' scan"
+tmux -S "$SOCK" run-shell "bash '$BIN' scan force"
 status_out=$(get_status)
 if [[ "$status_out" =~ 🤖[[:space:]]+⏳[[:space:]]+1 ]]; then
     echo "PASS (Upgraded to waiting: $status_out)"
@@ -157,7 +157,7 @@ tmux -S "$SOCK" send-keys -t "$pane3_id" "? for shortcuts" C-m
 sleep 0.2
 tmux -S "$SOCK" select-window -t test-sess:win3
 tmux -S "$SOCK" run-shell "bash '$BIN' on-focus $pane3_id"
-tmux -S "$SOCK" run-shell "bash '$BIN' scan"
+tmux -S "$SOCK" run-shell "bash '$BIN' scan force"
 status_out=$(get_status)
 if [[ -z "$status_out" ]] || ! [[ "$status_out" =~ ⏳ ]]; then
     echo "PASS (Waiting status cleared)"
@@ -221,7 +221,7 @@ tmux -S "$SOCK" send-keys -t "$pane_c_alert" "ALERT TRIGGER OUTPUT" C-m
 # Switch to win2 so all test panes are background
 tmux -S "$SOCK" select-window -t test-sess:win2
 sleep 0.2
-tmux -S "$SOCK" run-shell "bash '$BIN' scan"
+tmux -S "$SOCK" run-shell "bash '$BIN' scan force"
 
 status_out=$(get_status)
 # Strip ANSI escapes to check order: 🚨 1  👁️ 1  🤖 ⏳ 1  🤖 ⚡ 1
@@ -238,7 +238,7 @@ tmux -S "$SOCK" kill-window -t test-sess:win_c_alert
 tmux -S "$SOCK" kill-window -t test-sess:win_c_vigil
 tmux -S "$SOCK" kill-window -t test-sess:win_c_wait
 tmux -S "$SOCK" kill-window -t test-sess:win_c_run
-tmux -S "$SOCK" run-shell "bash '$BIN' scan"
+tmux -S "$SOCK" run-shell "bash '$BIN' scan force"
 
 # 14. Agent process exit detection
 echo -n "Test 13: Agent process exit transitions state to 'done' (Finished)... "
@@ -248,7 +248,7 @@ pane_c_exit=$(tmux -S "$SOCK" list-panes -t test-sess:win_c_exit -F '#{pane_id}'
 printf "%s\ttest-sess\t1\t0\t/tmp\thead\trunning in tmp\tauto\trunning\n" "$pane_c_exit" >> "$STATE_FILE"
 tmux -S "$SOCK" select-window -t test-sess:win2
 # When scan runs, cmd is 'cat' (generic) and ps has no agy, so it detects exit -> done
-tmux -S "$SOCK" run-shell "bash '$BIN' scan"
+tmux -S "$SOCK" run-shell "bash '$BIN' scan force"
 status_out=$(get_status)
 if [[ "$status_out" =~ 🤖[[:space:]]+✓[[:space:]]+1 ]]; then
     echo "PASS (Detected process exit, status: $status_out)"

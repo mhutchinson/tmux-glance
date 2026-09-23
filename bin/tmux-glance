@@ -85,7 +85,7 @@ pin_interactive() {
     [[ -z "$target_session" ]] && return 0
 
     local current_slot=""
-    current_slot=$("$ENGINE" assign-slot --query "$target_session" 2>/dev/null || true)
+    current_slot=$("$ENGINE" query-slot "$target_session" 2>/dev/null || true)
 
     local prompt_msg="📌 Pin [${target_session}] to Harpoon slot (h/j/k/l, Space/Del to unpin, Esc to cancel): "
     if [[ -n "$current_slot" ]]; then

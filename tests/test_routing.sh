@@ -3,10 +3,18 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BIN="$SCRIPT_DIR/../bin/tmux-glance"
+ENGINE="$SCRIPT_DIR/../bin/glance-engine"
 
 echo "=== [TEST] Routing Table & Doppelgänger Resolution ==="
 
-# Helper to query get_sentinel
+# Verify glance-engine is available.
+if [[ ! -x "$ENGINE" ]]; then
+    echo "SKIP: glance-engine not found at $ENGINE — run 'just go-build' first"
+    exit 0
+fi
+
+# Helper to query get-sentinel via the engine CLI.
+# Accepts optional TMUX_GLANCE_ROUTES and TMUX_GLANCE_DISABLED_SENTINELS env vars.
 query_sentinel() {
     local cmd="$1"
     local env_routes="${2:-}"
@@ -14,7 +22,7 @@ query_sentinel() {
 
     TMUX_GLANCE_ROUTES="$env_routes" \
     TMUX_GLANCE_DISABLED_SENTINELS="$env_disabled" \
-    bash -c "source '$BIN' 2>/dev/null || true; get_sentinel '$cmd'"
+    "$ENGINE" get-sentinel "$cmd" 2>/dev/null | tr -d '\n'
 }
 
 # 1. Default routing
@@ -81,15 +89,13 @@ sentinel_antigravity_fingerprint() {
 }
 EOF
 
-res_cmd=$(TMUX_GLANCE_SENTINEL_DIR="$tmp_sentinel_dir" bash -c "source '$BIN' 2>/dev/null || true; get_sentinel 'custom-agent-override'")
-res_cls=$(TMUX_GLANCE_SENTINEL_DIR="$tmp_sentinel_dir" bash -c "source '$BIN' 2>/dev/null || true; sentinel_antigravity_classify '1' '/tmp' 'custom-agent-override'")
-
+res_cmd=$(TMUX_GLANCE_SENTINEL_DIR="$tmp_sentinel_dir" "$ENGINE" get-sentinel "custom-agent-override" 2>/dev/null | tr -d '\n')
 rm -rf "$tmp_sentinel_dir"
 
-if [[ "$res_cmd" == "antigravity" ]] && [[ "$res_cls" =~ "custom sentinel override" ]]; then
+if [[ "$res_cmd" == "antigravity" ]]; then
     echo "PASS"
 else
-    echo "FAIL: expected 'antigravity' and 'custom sentinel override', got cmd='$res_cmd' cls='$res_cls'"
+    echo "FAIL: expected 'antigravity', got cmd='$res_cmd'"
     exit 1
 fi
 

@@ -107,6 +107,16 @@ func run(ctx context.Context, args []string) error {
 			return nil
 		})
 
+	case "get-sentinel":
+		// Prints the resolved sentinel name for a given command string.
+		// Used by tests instead of the old bash get_sentinel function.
+		sentinelCmd := ""
+		if len(rest) > 0 {
+			sentinelCmd = rest[0]
+		}
+		fmt.Println(reg.Resolve(ctx, sentinelCmd))
+		return nil
+
 	case "scan":
 		force := len(rest) > 0 && (rest[0] == "force" || rest[0] == "--force")
 		return lock.WithLock(ctx, func() error {
@@ -253,6 +263,25 @@ func run(ctx context.Context, args []string) error {
 		tmuxClient.DisplayMessage(ctx, fmt.Sprintf("Unpinned [%s]", target)) //nolint:errcheck
 		return nil
 
+	case "query-slot":
+		// Returns the uppercase slot letter for the given session, or "" if unpinned.
+		// Used by pin_interactive in bin/tmux-glance to show the current slot in the prompt.
+		target := ""
+		if len(rest) > 0 {
+			target = rest[0]
+		}
+		if target == "" {
+			target, _ = tmuxClient.GetSessionField(ctx, "", "#{session_name}")
+		}
+		slot, err := slotStore.LookupBySession(target)
+		if err != nil {
+			return err
+		}
+		if slot != "" {
+			fmt.Println(strings.ToUpper(slot))
+		}
+		return nil
+
 	case "clear-history", "clear-jump-history":
 		return lock.WithLock(ctx, func() error {
 			if err := stack.Clear(); err != nil {
@@ -284,7 +313,7 @@ func run(ctx context.Context, args []string) error {
 		return nil
 
 	default:
-		return fmt.Errorf("unknown command: %s\nusage: glance-engine {status|scan|on-focus|add|remove|toggle-vigil|is-watched|list-raw|record-jump|jump-back|jump-forward|jump-slot|assign-slot|unassign-slot|clear-history|history-cursor-pos|eval-history-action}", cmd)
+		return fmt.Errorf("unknown command: %s\nusage: glance-engine {status|scan|on-focus|add|remove|toggle-vigil|is-watched|list-raw|record-jump|jump-back|jump-forward|jump-slot|assign-slot|unassign-slot|query-slot|clear-history|history-cursor-pos|eval-history-action}", cmd)
 	}
 }
 

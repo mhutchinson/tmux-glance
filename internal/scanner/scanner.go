@@ -48,14 +48,10 @@ type paneResult struct {
 
 // Scan runs a full scan pass over all tmux panes, updates state, and records
 // scan metadata for debouncing. force=true bypasses the cooldown check.
+// Pruning of dead panes always runs (even within cooldown) so status output
+// is never stale with dead entries.
 func (sc *Scanner) Scan(ctx context.Context, force bool) error {
-	if !force {
-		if sc.withinCooldown(ctx) {
-			return nil
-		}
-	}
-
-	// Prune dead panes first.
+	// Pruning always runs — dead panes must be removed regardless of cooldown.
 	allPanes, err := sc.tmux.ListAllPanes(ctx)
 	if err != nil {
 		return fmt.Errorf("listing panes: %w", err)
@@ -66,6 +62,12 @@ func (sc *Scanner) Scan(ctx context.Context, force bool) error {
 	}
 	if err := sc.store.Prune(alivePaneIDs); err != nil {
 		return fmt.Errorf("pruning state: %w", err)
+	}
+
+	if !force {
+		if sc.withinCooldown(ctx) {
+			return nil
+		}
 	}
 
 	// Load current state.
