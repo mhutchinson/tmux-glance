@@ -35,6 +35,7 @@ live: go-build
     @tmux bind-key b display-popup -E -w 85% -h 75% "$PWD/bin/tmux-glance list"
     @tmux bind-key g display-popup -E -w 85% -h 75% "$PWD/bin/tmux-glance list-all"
     @tmux bind-key v run-shell "$PWD/bin/tmux-glance toggle-vigil"
+    @tmux bind-key Tab display-popup -E -w 85% -h 75% "$PWD/bin/tmux-glance list-history"
     @tmux bind-key -r C-h run-shell "$PWD/bin/tmux-glance jump-slot h"
     @tmux bind-key -r C-j run-shell "$PWD/bin/tmux-glance jump-slot j"
     @tmux bind-key -r C-k run-shell "$PWD/bin/tmux-glance jump-slot k"

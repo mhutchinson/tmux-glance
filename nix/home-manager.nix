@@ -33,6 +33,12 @@ in {
         default = "v";
         description = "Key to toggle Vigil watch on the current pane.";
       };
+
+      history = mkOption {
+        type = types.str;
+        default = "Tab";
+        description = "Key to open Jump History Timeline (Tier 2).";
+      };
     };
 
     popup = {
@@ -70,7 +76,7 @@ in {
     enableJumplist = mkOption {
       type = types.bool;
       default = false;
-      description = "Enable Tier 2 Jumplist backtrack keybindings (prefix C-z, C-y, and repeatable prefix -r u, U).";
+      description = "Enable Tier 2 Jumplist backtrack and history keybindings (prefix Tab, C-z, C-y, and repeatable prefix -r u, U).";
     };
 
     scanCooldown = mkOption {
@@ -108,6 +114,7 @@ in {
         bind-key -r C-l run-shell "${cfg.package}/bin/tmux-glance jump-slot l #{pane_id}"
       ''}
       ${optionalString cfg.enableJumplist ''
+        bind-key ${cfg.keybindings.history} display-popup -E -w ${cfg.popup.width} -h ${cfg.popup.height} "${cfg.package}/bin/tmux-glance list-history #{pane_id}"
         bind-key C-z run-shell "${cfg.package}/bin/tmux-glance jump-back #{pane_id}"
         bind-key C-y run-shell "${cfg.package}/bin/tmux-glance jump-forward #{pane_id}"
         bind-key -r u run-shell "${cfg.package}/bin/tmux-glance jump-back #{pane_id}"

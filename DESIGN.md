@@ -240,6 +240,7 @@ Global navigation chords, jumplist rewinds, and queue cycling can collide with p
 
 | Keybinding | Scope | Feature | Config Option |
 | :--- | :--- | :--- | :--- |
+| `prefix Tab` | Global | **Jump History Timeline** (v0.7) | `@glance_enable_jumplist 'on'` (key: `@glance_history_key`) |
 | `prefix -r C-h/j/k/l` | Global | **Harpoon Session Jump** | `@glance_enable_harpoon 'on'` (`enableHarpoon = true`) |
 | `prefix C-z` / `prefix C-y` | Global | **Jumplist Undo/Redo** (v0.7) | `@glance_enable_jumplist 'on'` |
 | `prefix -r u` / `prefix -r U` | Global | **Repeatable History Walk** (v0.7) | `@glance_enable_jumplist 'on'` |

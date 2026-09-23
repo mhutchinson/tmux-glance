@@ -46,9 +46,15 @@ if [[ "$enable_harpoon" =~ ^(on|yes|true|1)$ ]]; then
     tmux bind-key -r C-l run-shell "$GLANCE_BIN jump-slot l #{pane_id}"
 fi
 
-# Tier 2 Opt-in: Jumplist Backtracking (prefix + C-z, C-y, -r u, -r U)
+# Tier 2 Opt-in: Jumplist Backtracking & History (prefix + Tab, C-z, C-y, -r u, -r U)
 enable_jumplist="$(tmux show-option -gqv @glance_enable_jumplist)"
 if [[ "$enable_jumplist" =~ ^(on|yes|true|1)$ ]]; then
+    history_key="$(tmux show-option -gqv @glance_history_key)"
+    history_key="${history_key:-Tab}"
+    if [[ -n "$history_key" && "$history_key" != "off" && "$history_key" != "none" ]]; then
+        tmux bind-key "$history_key" display-popup -E -w "$popup_width" -h "$popup_height" "$GLANCE_BIN list-history #{pane_id}"
+    fi
+
     tmux bind-key C-z run-shell "$GLANCE_BIN jump-back #{pane_id}"
     tmux bind-key C-y run-shell "$GLANCE_BIN jump-forward #{pane_id}"
     tmux bind-key -r u run-shell "$GLANCE_BIN jump-back #{pane_id}"

@@ -256,11 +256,12 @@ Drop it in `~/.config/tmux-glance/sentinels/myagent.sh` and it will be loaded au
 programs.tmux-glance = {
   enable = true;
 
-  # Custom keybindings (defaults: g, b, v)
+  # Custom keybindings (defaults: g, b, v; Tier 2: Tab)
   keybindings = {
-    glance = "g"; # prefix + g: All Panes (Go-To Teleport)
-    hub = "b";    # prefix + b: Attention Hub
-    vigil = "v";  # prefix + v: Toggle Vigil on current pane
+    glance = "g";  # prefix + g: All Panes (Go-To Teleport)
+    hub = "b";     # prefix + b: Attention Hub
+    vigil = "v";   # prefix + v: Toggle Vigil on current pane
+    history = "Tab"; # prefix + Tab: Jump History Timeline (Tier 2)
   };
 
   # Custom popup window dimensions (defaults: 85% / 75%)
@@ -272,7 +273,7 @@ programs.tmux-glance = {
   # Enable Tier 2 Harpoon fast-jump chords (prefix C-h, C-j, C-k, C-l):
   enableHarpoon = true;
 
-  # Enable Tier 2 Jumplist backtrack chords (prefix C-z, C-y, and repeatable prefix -r u, U):
+  # Enable Tier 2 Jumplist backtrack chords & history modal (prefix Tab, C-z, C-y, and repeatable prefix -r u, U):
   enableJumplist = true;
 
   # Cooldown threshold in seconds to debounce background scans when focus is unchanged (default: 3)
@@ -295,8 +296,11 @@ set -g @glance_popup_height '75%'
 # Enable Tier 2 Harpoon fast-jump chords (prefix C-h, C-j, C-k, C-l):
 set -g @glance_enable_harpoon 'on'
 
-# Enable Tier 2 Jumplist backtrack chords (prefix C-z, C-y, -r u, -r U):
+# Enable Tier 2 Jumplist backtrack chords & history modal (prefix Tab, C-z, C-y, -r u, -r U):
 set -g @glance_enable_jumplist 'on'
+
+# Optional: customize history viewfinder key (default: Tab)
+# set -g @glance_history_key 'Tab'
 
 # Cooldown threshold in seconds to debounce background scans when focus is unchanged (default: 3)
 set -g @glance_scan_cooldown 3
@@ -316,14 +320,12 @@ Pin your top 4 projects to instant 1-chord shortcuts:
 ### 3. Jump History & Jumplist Backtracking
 Traverse seamlessly back and forth between recent panes across all sessions without losing context:
 * **In-Modal History Timeline (`Ctrl-h`):** From inside the Glance popup, press `Ctrl-h` to open the unified jump timeline. Panes are ordered vertically through time: forward/redo destinations (`⏭️ FWD`) sit above the current active pane (`📍 CUR`), which sits above past undo destinations (`⏮️ BACK`). By default, the immediate undo target (`BACK #1`) is highlighted so pressing `Enter` instantly jumps back. Pressing `Up` moves to `CUR` (where `Enter` is a safe no-op), and pressing `Up` again walks into future redo jumps (`FWD #1`). Press `Ctrl-x` inside the modal (or run `tmux-glance clear-history` via CLI) to wipe the jump history stack cleanly when switching contexts.
-* **Instant Keyboard Undo/Redo (Tier 2 Opt-in):** Enable `enableJumplist = true;` (`@glance_enable_jumplist 'on'`) to get direct chord navigation:
+* **Instant Keyboard Undo/Redo & Viewfinder (Tier 2 Opt-in):** Enable `enableJumplist = true;` (`@glance_enable_jumplist 'on'`) to get direct chord navigation:
+  * `prefix Tab` — Instant Jump History timeline viewfinder (configurable via `@glance_history_key`).
   * `prefix C-z` — Instant single-chord jump back (undo last jump; safely replaces tmux's default `suspend-client`).
   * `prefix C-y` — Instant single-chord jump forward (redo).
   * `prefix -r u` — Repeatable backward walk (tap `prefix u u u` to rewind multiple jumps within tmux's repeat window).
   * `prefix -r U` — Repeatable forward walk.
-
-> [!NOTE]
-> **Known Limitation (Issue #2)**: Direct keyboard chords (`prefix C-z` / `prefix C-y` / `prefix -r u` / `U`) shift the active frame between undo and redo stacks without discarding history. Selecting a past pane from within the interactive History popup (`Ctrl-h`) currently treats the selection as a new jump (wiping the forward redo stack). Frame-shifting from within the modal is tracked in [Issue #2](https://github.com/mhutchinson/tmux-glance/issues/2).
 
 ---
 
