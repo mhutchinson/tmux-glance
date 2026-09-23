@@ -277,5 +277,27 @@ else
 fi
 tmux -S "$SOCK" kill-window -t test-sess:test-fzf 2>/dev/null || true
 
+# 19. Interactive FZF history selection shifts frame without wiping forward stack (Issue #2)
+echo -n "Test 19: History modal selection shifts CUR frame and preserves forward stack (Issue #2)... "
+printf "%s\n" "$pane4" > "$TMUX_GLANCE_JUMP_FORWARD_FILE"
+printf "%s\n" "$pane3" > "$TMUX_GLANCE_JUMP_BACK_FILE"
+tmux -S "$SOCK" select-window -t test-sess:win1
+tmux -S "$SOCK" new-window -t test-sess -n test-fzf "env TMUX_GLANCE_DIR='$TMP_DIR' TMUX_GLANCE_JUMP_BACK_FILE='$TMP_DIR/jump_back' TMUX_GLANCE_JUMP_FORWARD_FILE='$TMP_DIR/jump_forward' $BIN list-history; sleep 1"
+sleep 0.5
+# Cursor starts on BACK #1 ($pane3). Press Enter to jump to $pane3.
+tmux -S "$SOCK" send-keys -t test-sess:test-fzf "Enter"
+sleep 0.5
+fwd_after=$(cat "$TMUX_GLANCE_JUMP_FORWARD_FILE" 2>/dev/null || true)
+back_after=$(cat "$TMUX_GLANCE_JUMP_BACK_FILE" 2>/dev/null || true)
+active_p=$(tmux -S "$SOCK" display-message -p -t test-sess:win3 '#{pane_id}')
+# Verify active pane is now pane3, back stack is empty (pane3 was consumed), and pane4 remains in forward stack
+if [[ "$active_p" == "$pane3" ]] && [[ "$fwd_after" == *"$pane4"* ]] && [[ -z "$back_after" ]]; then
+    echo "PASS (Forward preserved: $fwd_after, Back: empty, Active: $active_p)"
+else
+    echo "FAIL: Expected active=$pane3 and forward stack to retain $pane4, got: active='$active_p', fwd='$fwd_after', back='$back_after'"
+    exit 1
+fi
+tmux -S "$SOCK" kill-window -t test-sess:test-fzf 2>/dev/null || true
+
 echo "All jumplist tests passed successfully!"
 

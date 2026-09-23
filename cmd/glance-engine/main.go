@@ -71,20 +71,14 @@ func run(ctx context.Context, args []string) error {
 		filepath.Join(selfDir, "..", "sentinels"),
 		filepath.Join(selfDir, "..", "share", "tmux-glance", "sentinels"),
 	}
-	disabledStr, _ := tmuxClient.GetGlobalOption(ctx, "@glance_disabled_sentinels")
-	if disabledStr == "" {
-		disabledStr = os.Getenv("TMUX_GLANCE_DISABLED_SENTINELS")
-	}
+	disabledStr := envOrTmux(ctx, tmuxClient, "TMUX_GLANCE_DISABLED_SENTINELS", "@glance_disabled_sentinels", "")
 	var disabled []string
 	for _, d := range strings.Split(disabledStr, ",") {
 		if d = strings.TrimSpace(d); d != "" {
 			disabled = append(disabled, d)
 		}
 	}
-	routesStr, _ := tmuxClient.GetGlobalOption(ctx, "@glance_routes")
-	if routesStr == "" {
-		routesStr = os.Getenv("TMUX_GLANCE_ROUTES")
-	}
+	routesStr := envOrTmux(ctx, tmuxClient, "TMUX_GLANCE_ROUTES", "@glance_routes", "")
 	reg, err := sentinel.New(sentinelDirs, disabled, sentinel.ParseRouteOverrides(routesStr))
 	if err != nil {
 		return fmt.Errorf("sentinel registry: %w", err)
@@ -176,6 +170,18 @@ func run(ctx context.Context, args []string) error {
 		}
 		return lock.WithLock(ctx, func() error {
 			return stack.Record(ctx, rest[0], rest[1])
+		})
+
+	case "shift-to":
+		if len(rest) < 2 {
+			return fmt.Errorf("shift-to requires current and target pane IDs [direction]")
+		}
+		dir := ""
+		if len(rest) > 2 {
+			dir = rest[2]
+		}
+		return lock.WithLock(ctx, func() error {
+			return stack.ShiftTo(ctx, rest[0], rest[1], dir)
 		})
 
 	case "jump-back", "undo":
@@ -313,7 +319,7 @@ func run(ctx context.Context, args []string) error {
 		return nil
 
 	default:
-		return fmt.Errorf("unknown command: %s\nusage: glance-engine {status|scan|on-focus|add|remove|toggle-vigil|is-watched|list-raw|record-jump|jump-back|jump-forward|jump-slot|assign-slot|unassign-slot|query-slot|clear-history|history-cursor-pos|eval-history-action}", cmd)
+		return fmt.Errorf("unknown command: %s\nusage: glance-engine {status|scan|on-focus|add|remove|toggle-vigil|is-watched|list-raw|record-jump|shift-to|jump-back|jump-forward|jump-slot|assign-slot|unassign-slot|query-slot|clear-history|history-cursor-pos|eval-history-action}", cmd)
 	}
 }
 

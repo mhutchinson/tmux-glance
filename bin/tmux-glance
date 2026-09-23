@@ -196,19 +196,40 @@ list_bookmarks() {
     ) || true
 
     if [[ -n "$selected" ]]; then
+        if [[ "$selected" =~ "📍 CUR" ]]; then
+            return 0
+        fi
+
         local target="${selected##*$'\t'}"
         if [[ -n "$target" && "$target" == "$source_pane" ]]; then
             return 0
         fi
         if [[ -n "$target" ]] && tmux has-session -t "$target" 2>/dev/null; then
+            local active_mode
+            active_mode=$(tmux show-option -gqv @glance_mode 2>/dev/null || true)
+            local dir=""
+            if [[ "$selected" =~ "FWD" ]]; then
+                dir="fwd"
+            elif [[ "$selected" =~ "BACK" ]]; then
+                dir="back"
+            fi
+
             if [[ "$target" =~ ^% ]]; then
-                "$ENGINE" record-jump "$source_pane" "$target" 2>/dev/null || true
+                if [[ "$active_mode" == "history" ]]; then
+                    "$ENGINE" shift-to "$source_pane" "$target" "$dir" 2>/dev/null || true
+                else
+                    "$ENGINE" record-jump "$source_pane" "$target" 2>/dev/null || true
+                fi
                 tmux select-pane -t "$target" \; select-window -t "$target" \; switch-client -t "$target" \; display-popup -C 2>/dev/null || true
             else
                 local sess_active_pane
                 sess_active_pane=$(tmux display-message -p -t "$target" '#{pane_id}' 2>/dev/null || true)
                 if [[ -n "$source_pane" && -n "$sess_active_pane" ]]; then
-                    "$ENGINE" record-jump "$source_pane" "$sess_active_pane" 2>/dev/null || true
+                    if [[ "$active_mode" == "history" ]]; then
+                        "$ENGINE" shift-to "$source_pane" "$sess_active_pane" "$dir" 2>/dev/null || true
+                    else
+                        "$ENGINE" record-jump "$source_pane" "$sess_active_pane" 2>/dev/null || true
+                    fi
                 fi
                 tmux switch-client -t "$target" \; display-popup -C 2>/dev/null || true
             fi

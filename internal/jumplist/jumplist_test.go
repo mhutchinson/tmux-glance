@@ -164,13 +164,13 @@ func TestShiftTo_BackwardInHistory(t *testing.T) {
 		}
 	}
 	if len(fwd) < 2 {
-		t.Errorf("want fwd to contain %%3 and %%2, got %v", fwd)
+		t.Errorf("want fwd to contain %%2 and %%3, got %v", fwd)
 	}
-	if fwd[0] != "%3" {
-		t.Errorf("fwd[0] should be %%3 (old CUR), got %q", fwd[0])
+	if fwd[0] != "%2" {
+		t.Errorf("fwd[0] should be %%2 (immediate next forward), got %q", fwd[0])
 	}
-	if fwd[1] != "%2" {
-		t.Errorf("fwd[1] should be %%2 (intermediate), got %q", fwd[1])
+	if fwd[1] != "%3" {
+		t.Errorf("fwd[1] should be %%3 (old CUR), got %q", fwd[1])
 	}
 }
 
@@ -183,7 +183,7 @@ func TestShiftTo_ForwardInHistory(t *testing.T) {
 	writeStack(s.forwardFile, []string{"%4", "%5"}) //nolint:errcheck
 
 	// Shift from %3 to %5 (FWD #2).
-	if err := s.ShiftTo(ctx, "%3", "%5"); err != nil {
+	if err := s.ShiftTo(ctx, "%3", "%5", "fwd"); err != nil {
 		t.Fatalf("ShiftTo: %v", err)
 	}
 
@@ -196,15 +196,39 @@ func TestShiftTo_ForwardInHistory(t *testing.T) {
 			t.Errorf("target %%5 should not remain on forward stack")
 		}
 	}
-	// %3 and %4 should be on back stack.
+	// %4 (immediate back) and %3 (old CUR) should be on back stack.
 	if len(back) < 2 {
-		t.Errorf("want back to contain %%3 and %%4, got %v", back)
+		t.Errorf("want back to contain %%4 and %%3, got %v", back)
 	}
-	if back[0] != "%3" {
-		t.Errorf("back[0] should be %%3 (old CUR), got %q", back[0])
+	if back[0] != "%4" {
+		t.Errorf("back[0] should be %%4 (immediate next back), got %q", back[0])
 	}
-	if back[1] != "%4" {
-		t.Errorf("back[1] should be %%4 (intermediate), got %q", back[1])
+	if back[1] != "%3" {
+		t.Errorf("back[1] should be %%3 (old CUR), got %q", back[1])
+	}
+}
+
+func TestShiftTo_DisambiguateDuplicates(t *testing.T) {
+	t.Parallel()
+	s := newTestStack(t, alwaysAlive())
+	ctx := context.Background()
+	// %9 exists in both forward and back stacks
+	writeStack(s.forwardFile, []string{"%9", "%10"})
+	writeStack(s.backFile, []string{"%9", "%1"})
+
+	// Shifting forward to %9 should consume from forward, leaving back intact
+	if err := s.ShiftTo(ctx, "%3", "%9", "fwd"); err != nil {
+		t.Fatalf("ShiftTo: %v", err)
+	}
+
+	fwd, _ := readStack(s.forwardFile)
+	back, _ := readStack(s.backFile)
+
+	if len(fwd) != 1 || fwd[0] != "%10" {
+		t.Errorf("expected fwd to contain [%%10], got %v", fwd)
+	}
+	if len(back) == 0 || back[0] != "%3" {
+		t.Errorf("expected back[0] to be old CUR %%3, got %v", back)
 	}
 }
 

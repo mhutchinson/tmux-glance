@@ -129,59 +129,118 @@ func (s *Stack) Forward(ctx context.Context, currentPane string) (string, error)
 }
 
 // ShiftTo moves the CUR frame to the given target pane without recording a
-// new branch — fixes Issue #2. Items between CUR and target are moved between
-// the stacks to keep the timeline consistent.
+// new branch — fixes Issue #2.
 //
-// If target is in the back stack, entries above it (between CUR and target) are
-// moved to the forward stack. If target is in the forward stack, entries above
-// it are moved to the back stack.
-func (s *Stack) ShiftTo(ctx context.Context, currentPane, target string) error {
+// dir optionally specifies "fwd" or "back". If provided, only that stack is
+// searched, preventing false hits on panes that appear in both stacks.
+//
+// Intervening entries between CUR and target are moved to the opposite stack
+// in reverse order so that nearest neighbors remain at index 0.
+func (s *Stack) ShiftTo(ctx context.Context, currentPane, target string, dir ...string) error {
 	if target == "" || target == currentPane {
 		return nil
 	}
+	direction := ""
+	if len(dir) > 0 {
+		direction = dir[0]
+	}
+
 	back, _ := readStack(s.backFile)
 	fwd, _ := readStack(s.forwardFile)
 
-	// Check back stack first.
-	for i, id := range back {
-		if id != target {
-			continue
+	// If direction is explicitly "fwd" or unspecified, check forward stack.
+	if direction == "fwd" || (direction == "" && contains(fwd, target)) {
+		for i, id := range fwd {
+			if id != target {
+				continue
+			}
+			// Entries fwd[:i] sit between currentPane and target.
+			// Looking backward from target: nearest is fwd[i-1] down to fwd[0], then currentPane.
+			intervening := fwd[:i]
+			reversedIntervening := make([]string, len(intervening))
+			for k, v := range intervening {
+				reversedIntervening[len(intervening)-1-k] = v
+			}
+
+			newFwd := fwd[i+1:]
+			newBack := make([]string, 0, len(reversedIntervening)+1+len(back))
+			newBack = append(newBack, reversedIntervening...)
+			if currentPane != "" {
+				newBack = append(newBack, currentPane)
+			}
+			newBack = append(newBack, back...)
+
+			if len(newBack) > maxStack {
+				newBack = newBack[:maxStack]
+			}
+			if len(newFwd) > maxStack {
+				newFwd = newFwd[:maxStack]
+			}
+			writeStack(s.forwardFile, dedupConsecutive(newFwd)) //nolint:errcheck
+			return writeStack(s.backFile, dedupConsecutive(newBack))
 		}
-		// Entries back[0..i-1] sit between CUR and target; move them to forward.
-		movedToFwd := make([]string, i)
-		copy(movedToFwd, back[:i])
-		newBack := back[i+1:]
-		newFwd := make([]string, 0, 1+len(movedToFwd)+len(fwd))
-		if currentPane != "" {
-			newFwd = append(newFwd, currentPane)
-		}
-		newFwd = append(newFwd, movedToFwd...)
-		newFwd = append(newFwd, fwd...)
-		writeStack(s.backFile, newBack)  //nolint:errcheck
-		return writeStack(s.forwardFile, newFwd)
 	}
 
-	// Check forward stack.
-	for i, id := range fwd {
-		if id != target {
-			continue
+	// If direction is explicitly "back" or unspecified, check back stack.
+	if direction == "back" || (direction == "" && contains(back, target)) {
+		for i, id := range back {
+			if id != target {
+				continue
+			}
+			// Entries back[:i] sit between currentPane and target.
+			// Looking forward from target: nearest is back[i-1] down to back[0], then currentPane.
+			intervening := back[:i]
+			reversedIntervening := make([]string, len(intervening))
+			for k, v := range intervening {
+				reversedIntervening[len(intervening)-1-k] = v
+			}
+
+			newBack := back[i+1:]
+			newFwd := make([]string, 0, len(reversedIntervening)+1+len(fwd))
+			newFwd = append(newFwd, reversedIntervening...)
+			if currentPane != "" {
+				newFwd = append(newFwd, currentPane)
+			}
+			newFwd = append(newFwd, fwd...)
+
+			if len(newBack) > maxStack {
+				newBack = newBack[:maxStack]
+			}
+			if len(newFwd) > maxStack {
+				newFwd = newFwd[:maxStack]
+			}
+			writeStack(s.forwardFile, dedupConsecutive(newFwd)) //nolint:errcheck
+			return writeStack(s.backFile, dedupConsecutive(newBack))
 		}
-		// Entries fwd[0..i-1] sit between target and CUR; move them to back.
-		movedToBack := make([]string, i)
-		copy(movedToBack, fwd[:i])
-		newFwd := fwd[i+1:]
-		newBack := make([]string, 0, 1+len(movedToBack)+len(back))
-		if currentPane != "" {
-			newBack = append(newBack, currentPane)
-		}
-		newBack = append(newBack, movedToBack...)
-		newBack = append(newBack, back...)
-		writeStack(s.forwardFile, newFwd) //nolint:errcheck
-		return writeStack(s.backFile, newBack)
 	}
 
 	// Not in either stack: treat as a fresh branch record.
 	return s.Record(ctx, currentPane, target)
+}
+
+func contains(stack []string, target string) bool {
+	for _, id := range stack {
+		if id == target {
+			return true
+		}
+	}
+	return false
+}
+
+func dedupConsecutive(stack []string) []string {
+	if len(stack) <= 1 {
+		return stack
+	}
+	res := make([]string, 0, len(stack))
+	for _, id := range stack {
+		if id == "" {
+			continue
+		}
+		if len(res) == 0 || res[len(res)-1] != id {
+			res = append(res, id)
+		}
+	}
+	return res
 }
 
 // Clear wipes both stacks.
