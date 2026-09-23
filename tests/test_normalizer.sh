@@ -135,4 +135,29 @@ else
     exit 1
 fi
 
+echo -n "Test 8: Classification of subagent approval / blocked agent prompt... "
+buf_blocked=$(cat << 'EOF'
+ ┃ self needs approval for Bash
+ ┃ ─────────────────────────────────────────────────────────────────────────────────────
+ ┃
+ ┃ ● Bash(top -l 1 -n 5 -o cpu)
+ ┃
+ ┃ ctrl+y approve · alt+j manage
+───────────────────────────────────────────────────────────────────────────────────────────
+>
+───────────────────────────────────────────────────────────────────────────────────────────
+  ● Agent(self)  Blocked · Running command · 6s
+───────────────────────────────────────────────────────────────────────────────────────────
+? for shortcuts                       accept-edits · Gemini 3.8 Flash · low · 1 subagent(s)
+EOF
+)
+tail_blocked=$(echo "$buf_blocked" | grep -v '^[[:space:]]*$' | tail -n 15)
+if echo "$tail_blocked" | grep -qE '^[[:space:]]*●[[:space:]]+Agent\(.*Blocked' && \
+   echo "$tail_blocked" | grep -qE 'needs[[:space:]]+approval[[:space:]]+for'; then
+    echo "PASS (Classified as waiting/blocked via semantic cues)"
+else
+    echo "FAIL: Failed to classify subagent approval / blocked agent prompt"
+    exit 1
+fi
+
 echo "All normalization tests passed successfully!"

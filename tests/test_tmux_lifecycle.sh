@@ -166,6 +166,31 @@ else
     exit 1
 fi
 
+# 11b. Subagent needs approval with resting footer (? for shortcuts)
+echo -n "Test 10b: Subagent approval prompt with resting footer triggers Waiting status... "
+tmux -S "$SOCK" select-window -t test-sess:win2
+tmux -S "$SOCK" send-keys -t "$pane3_id" "self needs approval for Bash" C-m
+tmux -S "$SOCK" send-keys -t "$pane3_id" "ctrl+y approve · alt+j manage" C-m
+tmux -S "$SOCK" send-keys -t "$pane3_id" "● Agent(self)  Blocked · Running command · 6s" C-m
+tmux -S "$SOCK" send-keys -t "$pane3_id" "? for shortcuts" C-m
+sleep 0.2
+tmux -S "$SOCK" run-shell "bash '$BIN' scan force"
+status_out=$(get_status)
+if [[ "$status_out" =~ 🤖[[:space:]]+⏳[[:space:]]+1 ]]; then
+    echo "PASS (Upgraded to waiting: $status_out)"
+else
+    echo "FAIL: Expected '🤖 ⏳ 1', got '$status_out'"
+    exit 1
+fi
+
+# Clean up back to idle for subsequent tests
+tmux -S "$SOCK" select-window -t test-sess:win3
+for _ in $(seq 1 16); do tmux -S "$SOCK" send-keys -t "$pane3_id" " " C-m; done
+tmux -S "$SOCK" send-keys -t "$pane3_id" "? for shortcuts" C-m
+sleep 0.2
+tmux -S "$SOCK" run-shell "bash '$BIN' on-focus $pane3_id"
+tmux -S "$SOCK" run-shell "bash '$BIN' scan force"
+
 # 12. Dead pane pruning
 echo -n "Test 11: Dead pane pruning removes terminated panes from state and status... "
 tmux -S "$SOCK" new-window -t test-sess -n win_dead "cat"

@@ -333,8 +333,15 @@ func (sc *Scanner) evaluateCandidate(ctx context.Context, p tmux.PaneInfo, exist
 			if !hasExisting {
 				return paneResult{paneID: p.ID, action: "noop"}
 			}
-			if cls.State == "done" || existing.State == state.StateDone {
+			if cls.State == "done" || existing.State == state.StateDone || cls.State == "idle" {
 				return paneResult{paneID: p.ID, action: "remove"}
+			}
+			newState := state.PaneState(cls.State)
+			if existing.State != newState {
+				entry := existing
+				entry.State = newState
+				entry.Label = cls.Label
+				return paneResult{paneID: p.ID, action: "set", entry: entry}
 			}
 			return paneResult{paneID: p.ID, action: "noop"}
 		}

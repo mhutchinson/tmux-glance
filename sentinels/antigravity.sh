@@ -21,15 +21,21 @@ sentinel_antigravity_classify() {
     local non_empty last_line tail_text
     non_empty=$(tmux capture-pane -p -t "$pane_id" 2>/dev/null | grep -v '^[[:space:]]*$')
     last_line=$(echo "$non_empty" | tail -n 1)
-    tail_text=$(echo "$non_empty" | tail -n 10)
+    # Sample bottom lines to evaluate active prompt frame
+    tail_text=$(echo "$non_empty" | tail -n 15)
 
-    # Strict footer cue evaluation: if bottom line is resting prompt, agent is idle
-    if [[ "$last_line" =~ \?[[:space:]]for[[:space:]]shortcuts ]]; then
-        printf "idle\tidle in %s\n" "$(basename "$path")"
-    elif [[ "$tail_text" =~ (Requesting[[:space:]]permission[[:space:]]for|Run[[:space:]]this[[:space:]]command\?|Navigate[[:space:]]·|1\.[[:space:]]Yes,[[:space:]]run[[:space:]]command|\(y/n\)) ]]; then
+    # 1. Blocked / Waiting cues:
+    # A) Subagent explicitly reported Blocked in lifecycle widget: e.g. "● Agent(...)  Blocked · ..."
+    # B) Approval card header: e.g. "┃ self needs approval for Bash"
+    # C) Interactive permission prompt: "Requesting permission for" or "Run this command?" (not followed by Command finished)
+    if echo "$tail_text" | grep -qE '^[[:space:]]*●[[:space:]]+Agent\(.*Blocked' || \
+       echo "$tail_text" | grep -qE '^[[:space:]]*[┃|][[:space:]]*.*needs[[:space:]]+approval[[:space:]]+for' || \
+       (echo "$tail_text" | grep -qE '(Requesting[[:space:]]permission[[:space:]]for|Run[[:space:]]this[[:space:]]command\?)' && ! echo "$tail_text" | grep -qE 'Command[[:space:]]+finished'); then
         printf "waiting\twaiting for confirmation in %s\n" "$(basename "$path")"
-    elif [[ "$tail_text" =~ esc[[:space:]]to[[:space:]]cancel ]]; then
+    elif [[ "$last_line" =~ esc[[:space:]]to[[:space:]]cancel ]] || echo "$tail_text" | grep -qE '^[[:space:]]*●[[:space:]]+Agent\(.*Running'; then
         printf "running\trunning in %s\n" "$(basename "$path")"
+    elif [[ "$last_line" =~ \?[[:space:]]for[[:space:]]shortcuts ]] || [[ "$last_line" =~ ^\>[[:space:]]*$ ]]; then
+        printf "idle\tidle in %s\n" "$(basename "$path")"
     else
         printf "unknown\t%s\n" "$(basename "$path")"
     fi

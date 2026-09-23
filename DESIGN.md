@@ -150,9 +150,9 @@ sentinel_<name>_fingerprint() {
 #### 1. `sentinel-antigravity`
 * **Matcher:** `cmd =~ ^(agy|antigravity)$`
 * **Classification:**
-  * `WAITING`: Detects interactive permission prompts (`Requesting permission for`, `Run this command?`, `Navigate · tab Amend`, `1. Yes, run command`, `(y/n)`).
+  * `WAITING`: Detects interactive permission prompts, subagent approval requests, and blocked tool execution (`needs approval`, `ctrl+y approve`, `Blocked ·`, `Requesting permission for`, `Run this command?`, `Navigate · tab Amend`, `1. Yes, run command`, `(y/n)`).
   * `RUNNING`: Detects active execution (`esc to cancel`).
-  * `IDLE`: Detects resting prompt (`? for shortcuts`).
+  * `IDLE`: Detects resting prompt (`? for shortcuts`). Note that `WAITING` cues take precedence over `IDLE`, as the footer resting prompt (`? for shortcuts`) remains visible while subagents are blocked waiting for approval.
 * **Thinking Spinner Normalizer:**
   Antigravity streams thoughts and animates braille spinners (`[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏⣾⣽⣻⢿⡿⣟⣯⣷]`) in-place during thinking blocks. The normalizer strips these lines before hashing:
   ```bash
