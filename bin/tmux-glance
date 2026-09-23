@@ -196,25 +196,21 @@ list_bookmarks() {
     ) || true
 
     if [[ -n "$selected" ]]; then
-        local target
-        target=$(echo "$selected" | cut -f2)
+        local target="${selected##*$'\t'}"
         if [[ -n "$target" && "$target" == "$source_pane" ]]; then
             return 0
         fi
         if [[ -n "$target" ]] && tmux has-session -t "$target" 2>/dev/null; then
             if [[ "$target" =~ ^% ]]; then
                 "$ENGINE" record-jump "$source_pane" "$target" 2>/dev/null || true
-                tmux select-pane -t "$target"
-                tmux select-window -t "$target"
-                tmux switch-client -t "$target"
-                "$ENGINE" on-focus "$target" 2>/dev/null || true
+                tmux select-pane -t "$target" \; select-window -t "$target" \; switch-client -t "$target" \; display-popup -C 2>/dev/null || true
             else
                 local sess_active_pane
                 sess_active_pane=$(tmux display-message -p -t "$target" '#{pane_id}' 2>/dev/null || true)
                 if [[ -n "$source_pane" && -n "$sess_active_pane" ]]; then
                     "$ENGINE" record-jump "$source_pane" "$sess_active_pane" 2>/dev/null || true
                 fi
-                tmux switch-client -t "$target"
+                tmux switch-client -t "$target" \; display-popup -C 2>/dev/null || true
             fi
         elif [[ -n "$target" ]]; then
             tmux display-message "Target pane or session no longer exists."
