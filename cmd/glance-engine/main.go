@@ -15,6 +15,7 @@ import (
 
 	"github.com/mhutchinson/tmux-glance/internal/formatter"
 	"github.com/mhutchinson/tmux-glance/internal/jumplist"
+	"github.com/mhutchinson/tmux-glance/internal/quickfix"
 	"github.com/mhutchinson/tmux-glance/internal/scanner"
 	"github.com/mhutchinson/tmux-glance/internal/sentinel"
 	"github.com/mhutchinson/tmux-glance/internal/slots"
@@ -228,6 +229,24 @@ func run(ctx context.Context, args []string) error {
 			return selectAndFocus(ctx, target, sc, tmuxClient)
 		})
 
+	case "next-attention", "cnext":
+		paneID := ""
+		if len(rest) > 0 {
+			paneID = rest[0]
+		}
+		return lock.WithLock(ctx, func() error {
+			return quickfix.Cycle(ctx, "next", store, stack, tmuxClient, paneID)
+		})
+
+	case "prev-attention", "cprev":
+		paneID := ""
+		if len(rest) > 0 {
+			paneID = rest[0]
+		}
+		return lock.WithLock(ctx, func() error {
+			return quickfix.Cycle(ctx, "prev", store, stack, tmuxClient, paneID)
+		})
+
 	case "jump-slot":
 		if len(rest) < 1 {
 			return fmt.Errorf("jump-slot requires a slot identifier")
@@ -323,7 +342,7 @@ func run(ctx context.Context, args []string) error {
 		return nil
 
 	default:
-		return fmt.Errorf("unknown command: %s\nusage: glance-engine {status|scan|on-focus|add|remove|toggle-vigil|is-watched|list-raw|record-jump|shift-to|jump-back|jump-forward|jump-slot|assign-slot|unassign-slot|query-slot|clear-history|history-cursor-pos|eval-history-action}", cmd)
+		return fmt.Errorf("unknown command: %s\nusage: glance-engine {status|scan|on-focus|add|remove|toggle-vigil|is-watched|list-raw|record-jump|shift-to|jump-back|jump-forward|next-attention|prev-attention|jump-slot|assign-slot|unassign-slot|query-slot|clear-history|history-cursor-pos|eval-history-action}", cmd)
 	}
 }
 

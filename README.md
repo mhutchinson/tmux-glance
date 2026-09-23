@@ -273,8 +273,11 @@ programs.tmux-glance = {
   # Enable Tier 2 Harpoon fast-jump chords (prefix C-h, C-j, C-k, C-l):
   enableHarpoon = true;
 
-  # Enable Tier 2 Jumplist backtrack chords & history modal (prefix Tab, C-z, C-y, and repeatable prefix -r u, U):
+  # Enable Tier 2 Jumplist backtrack chords & history modal (prefix Tab, C-z, C-y, repeatable prefix -r <, >, u, U):
   enableJumplist = true;
+
+  # Enable Tier 2 Quickfix attention queue cycling (repeatable prefix -r ], [):
+  enableQuickfix = true;
 
   # Cooldown threshold in seconds to debounce background scans when focus is unchanged (default: 3)
   scanCooldown = 3;
@@ -296,8 +299,11 @@ set -g @glance_popup_height '75%'
 # Enable Tier 2 Harpoon fast-jump chords (prefix C-h, C-j, C-k, C-l):
 set -g @glance_enable_harpoon 'on'
 
-# Enable Tier 2 Jumplist backtrack chords & history modal (prefix Tab, C-z, C-y, -r u, -r U):
+# Enable Tier 2 Jumplist backtrack chords & history modal (prefix Tab, C-z, C-y, -r <, -r >, -r u, -r U):
 set -g @glance_enable_jumplist 'on'
+
+# Enable Tier 2 Quickfix attention queue cycling (repeatable prefix -r ], -r [):
+set -g @glance_enable_quickfix 'on'
 
 # Optional: customize history viewfinder key (default: Tab)
 # set -g @glance_history_key 'Tab'
@@ -324,12 +330,21 @@ Traverse seamlessly back and forth between recent panes across all sessions with
   * `prefix Tab` — Instant Jump History timeline viewfinder (configurable via `@glance_history_key`).
   * `prefix C-z` — Instant single-chord jump back (undo last jump; safely replaces tmux's default `suspend-client`).
   * `prefix C-y` — Instant single-chord jump forward (redo).
-  * `prefix -r u` — Repeatable backward walk (tap `prefix u u u` to rewind multiple jumps within tmux's repeat window).
-  * `prefix -r U` — Repeatable forward walk.
+  * `prefix -r <` / `prefix -r >` — Repeatable history traversal (tap `prefix < <` or `prefix > >` to flip back and forth between panes with 2 keystrokes).
+  * `prefix -r u` / `prefix -r U` — Repeatable backward and forward walk.
 
 ---
 
-### 4. Command Routing & Disabling Sentinels
+### 4. Quickfix Attention Queue Cycling (Tier 2 Opt-in)
+Cycle through active attention items (`🚨 Alert`, `🤖 ⏳ Waiting`, `🤖 ✓ Finished`) just like Vim quickfix (`:cnext` / `:cprev`):
+* Enable `enableQuickfix = true;` in Home Manager or `set -g @glance_enable_quickfix 'on'` in `~/.tmux.conf`.
+* `prefix -r ]` — Jump to next attention item (repeatable: tap `prefix ] ] ]` to triage successive items).
+* `prefix -r [` — Jump to previous attention item (repeatable).
+* Circular navigation wraps around the queue and displays progress: `Glance [1/3] 🚨 Alert: session (label)`.
+
+---
+
+### 5. Command Routing & Disabling Sentinels
 
 `tmux-glance` decouples sentinel implementations from command names through an **$O(1)$ Command Routing Table**.
 

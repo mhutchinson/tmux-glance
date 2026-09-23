@@ -447,5 +447,68 @@ else
     exit 1
 fi
 
+# 23. Quickfix Attention Cycling (next-attention, prev-attention, and jump-back)
+echo -n "Test 22: Quickfix attention queue cycling (next/prev) and jumplist rewind... "
+# Clear lingering state from earlier tests to provide an isolated queue environment
+: > "$STATE_FILE"
+
+tmux -S "$SOCK" new-window -t test-sess -n win_qf1 "bash"
+pane_qf1=$(tmux -S "$SOCK" list-panes -t test-sess:win_qf1 -F '#{pane_id}')
+tmux -S "$SOCK" new-window -t test-sess -n win_qf2 "bash"
+pane_qf2=$(tmux -S "$SOCK" list-panes -t test-sess:win_qf2 -F '#{pane_id}')
+
+# Seed attention queue: qf1 is Alert, qf2 is Waiting
+printf "%s\ttest-sess\t10\t0\t/tmp\tbuild\tbuild error in tmp\tmanual\talert\n" "$pane_qf1" >> "$STATE_FILE"
+printf "%s\ttest-sess\t11\t0\t/tmp\tagy\twaiting for approval\tauto\twaiting\n" "$pane_qf2" >> "$STATE_FILE"
+
+# Start on win1 (non-attention window)
+tmux -S "$SOCK" select-window -t test-sess:win1
+
+# 1. next-attention jumps to highest priority attention item (pane_qf1, Alert)
+tmux -S "$SOCK" run-shell "bash '$BIN' next-attention"
+landed_pane1=$(tmux -S "$SOCK" display-message -t test-sess -p '#{pane_id}')
+if [[ "$landed_pane1" != "$pane_qf1" ]]; then
+    echo "FAIL: next-attention expected to land on $pane_qf1 (Alert), got $landed_pane1"
+    exit 1
+fi
+
+# 2. next-attention advances to next item (pane_qf2, Waiting)
+tmux -S "$SOCK" run-shell "bash '$BIN' next-attention"
+landed_pane2=$(tmux -S "$SOCK" display-message -t test-sess -p '#{pane_id}')
+if [[ "$landed_pane2" != "$pane_qf2" ]]; then
+    echo "FAIL: next-attention expected to land on $pane_qf2 (Waiting), got $landed_pane2"
+    exit 1
+fi
+
+# 3. next-attention wraps back around to pane_qf1
+tmux -S "$SOCK" run-shell "bash '$BIN' next-attention"
+landed_wrap=$(tmux -S "$SOCK" display-message -t test-sess -p '#{pane_id}')
+if [[ "$landed_wrap" != "$pane_qf1" ]]; then
+    echo "FAIL: next-attention expected to wrap to $pane_qf1, got $landed_wrap"
+    exit 1
+fi
+
+# 4. prev-attention cycles backward to pane_qf2
+tmux -S "$SOCK" run-shell "bash '$BIN' prev-attention"
+landed_prev=$(tmux -S "$SOCK" display-message -t test-sess -p '#{pane_id}')
+if [[ "$landed_prev" != "$pane_qf2" ]]; then
+    echo "FAIL: prev-attention expected to cycle backward to $pane_qf2, got $landed_prev"
+    exit 1
+fi
+
+# 5. jump-back (<) rewinds back across the history stack
+tmux -S "$SOCK" run-shell "bash '$BIN' jump-back"
+landed_back=$(tmux -S "$SOCK" display-message -t test-sess -p '#{pane_id}')
+if [[ "$landed_back" != "$pane_qf1" ]]; then
+    echo "FAIL: jump-back expected to rewind to $pane_qf1, got $landed_back"
+    exit 1
+fi
+
+# Clean up quickfix test windows
+tmux -S "$SOCK" kill-window -t test-sess:win_qf1 2>/dev/null || true
+tmux -S "$SOCK" kill-window -t test-sess:win_qf2 2>/dev/null || true
+echo "PASS"
+
 echo "All headless tmux lifecycle tests passed successfully!"
+
 

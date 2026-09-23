@@ -46,7 +46,7 @@ if [[ "$enable_harpoon" =~ ^(on|yes|true|1)$ ]]; then
     tmux bind-key -r C-l run-shell "$GLANCE_BIN jump-slot l #{pane_id}"
 fi
 
-# Tier 2 Opt-in: Jumplist Backtracking & History (prefix + Tab, C-z, C-y, -r u, -r U)
+# Tier 2 Opt-in: Jumplist Backtracking & History (prefix + <, >, Tab, C-z, C-y, -r u, -r U)
 enable_jumplist="$(tmux show-option -gqv @glance_enable_jumplist)"
 if [[ "$enable_jumplist" =~ ^(on|yes|true|1)$ ]]; then
     history_key="$(tmux show-option -gqv @glance_history_key)"
@@ -55,8 +55,30 @@ if [[ "$enable_jumplist" =~ ^(on|yes|true|1)$ ]]; then
         tmux bind-key "$history_key" display-popup -E -w "$popup_width" -h "$popup_height" "$GLANCE_BIN list-history #{pane_id}"
     fi
 
+    # Repeatable History Jump: < (back) and > (forward)
+    tmux bind-key -r '<' run-shell "$GLANCE_BIN jump-back #{pane_id}"
+    tmux bind-key -r '>' run-shell "$GLANCE_BIN jump-forward #{pane_id}"
+
+    # Legacy undo / redo aliases
     tmux bind-key C-z run-shell "$GLANCE_BIN jump-back #{pane_id}"
     tmux bind-key C-y run-shell "$GLANCE_BIN jump-forward #{pane_id}"
     tmux bind-key -r u run-shell "$GLANCE_BIN jump-back #{pane_id}"
     tmux bind-key -r U run-shell "$GLANCE_BIN jump-forward #{pane_id}"
 fi
+
+# Tier 2 Opt-in: Quickfix Attention Queue Cycling (prefix + -r ], -r [)
+enable_quickfix="$(tmux show-option -gqv @glance_enable_quickfix)"
+if [[ "$enable_quickfix" =~ ^(on|yes|true|1)$ ]]; then
+    next_key="$(tmux show-option -gqv @glance_quickfix_next)"
+    next_key="${next_key:-]}"
+    prev_key="$(tmux show-option -gqv @glance_quickfix_prev)"
+    prev_key="${prev_key:-[}"
+
+    if [[ -n "$next_key" && "$next_key" != "off" && "$next_key" != "none" ]]; then
+        tmux bind-key -r "$next_key" run-shell "$GLANCE_BIN next-attention #{pane_id}"
+    fi
+    if [[ -n "$prev_key" && "$prev_key" != "off" && "$prev_key" != "none" ]]; then
+        tmux bind-key -r "$prev_key" run-shell "$GLANCE_BIN prev-attention #{pane_id}"
+    fi
+fi
+

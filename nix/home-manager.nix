@@ -39,6 +39,18 @@ in {
         default = "Tab";
         description = "Key to open Jump History Timeline (Tier 2).";
       };
+
+      quickfixNext = mkOption {
+        type = types.str;
+        default = "]";
+        description = "Key to cycle to next attention item (Tier 2).";
+      };
+
+      quickfixPrev = mkOption {
+        type = types.str;
+        default = "[";
+        description = "Key to cycle to previous attention item (Tier 2).";
+      };
     };
 
     popup = {
@@ -76,7 +88,13 @@ in {
     enableJumplist = mkOption {
       type = types.bool;
       default = false;
-      description = "Enable Tier 2 Jumplist backtrack and history keybindings (prefix Tab, C-z, C-y, and repeatable prefix -r u, U).";
+      description = "Enable Tier 2 Jumplist backtrack and history keybindings (prefix <, >, Tab, C-z, C-y, and repeatable prefix -r u, U).";
+    };
+
+    enableQuickfix = mkOption {
+      type = types.bool;
+      default = false;
+      description = "Enable Tier 2 Quickfix attention cycling keybindings (prefix -r ], [).";
     };
 
     scanCooldown = mkOption {
@@ -115,10 +133,16 @@ in {
       ''}
       ${optionalString cfg.enableJumplist ''
         bind-key ${cfg.keybindings.history} display-popup -E -w ${cfg.popup.width} -h ${cfg.popup.height} "${cfg.package}/bin/tmux-glance list-history #{pane_id}"
+        bind-key -r '<' run-shell "${cfg.package}/bin/tmux-glance jump-back #{pane_id}"
+        bind-key -r '>' run-shell "${cfg.package}/bin/tmux-glance jump-forward #{pane_id}"
         bind-key C-z run-shell "${cfg.package}/bin/tmux-glance jump-back #{pane_id}"
         bind-key C-y run-shell "${cfg.package}/bin/tmux-glance jump-forward #{pane_id}"
         bind-key -r u run-shell "${cfg.package}/bin/tmux-glance jump-back #{pane_id}"
         bind-key -r U run-shell "${cfg.package}/bin/tmux-glance jump-forward #{pane_id}"
+      ''}
+      ${optionalString cfg.enableQuickfix ''
+        bind-key -r '${cfg.keybindings.quickfixNext}' run-shell "${cfg.package}/bin/tmux-glance next-attention #{pane_id}"
+        bind-key -r '${cfg.keybindings.quickfixPrev}' run-shell "${cfg.package}/bin/tmux-glance prev-attention #{pane_id}"
       ''}
     '';
   };
