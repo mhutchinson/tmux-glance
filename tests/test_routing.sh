@@ -2,7 +2,6 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BIN="$SCRIPT_DIR/../bin/tmux-glance"
 ENGINE="$SCRIPT_DIR/../bin/glance-engine"
 
 echo "=== [TEST] Routing Table & Doppelgänger Resolution ==="

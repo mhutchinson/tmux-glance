@@ -176,7 +176,7 @@ list_bookmarks() {
 
     local selected
     selected=$("$ENGINE" list-raw "$initial_mode" | fzf \
-        ${fzf_extra_args[@]+${fzf_extra_args[@]}} \
+        ${fzf_extra_args[@]+"${fzf_extra_args[@]}"} \
         --delimiter=$'\t' \
         --with-nth=1 \
         --ansi \

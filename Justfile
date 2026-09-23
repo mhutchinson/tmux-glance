@@ -26,7 +26,7 @@ build:
 
 
 # Wire running tmux directly to this working tree for instant zero-rebuild live development
-live:
+live: go-build
     @if ! tmux info >/dev/null 2>&1; then \
         echo "Error: tmux server is not running"; \
         exit 1; \
