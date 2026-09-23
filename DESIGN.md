@@ -1,7 +1,7 @@
 # System Architecture: `tmux-glance`
 
 **Ambient Terminal Sentinels & Background Agent Orchestration for Tmux**  
-*Status: Approved & Implemented (v3.0)*  
+*Status: Approved & Implemented (v0.7 — Go engine)*  
 *Target: Standalone Open-Source Project (`github:mhutchinson/tmux-glance`)*
 
 ---
@@ -34,6 +34,42 @@ As terminal workflows transition from synchronous shell commands to autonomous, 
 
 ## 3. High-Level Architecture & Component Flow
 
+As of v0.7, all stateful engine logic has moved to **`glance-engine`**, a compiled Go binary. The bash script (`bin/tmux-glance`) is now a thin ~140-line dispatcher handling only FZF popup assembly, preview loops, and key-read interactions.
+
+### Go/Bash Boundary
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  bin/tmux-glance  (bash, ~140 lines)                            │
+│  • fzf popup launcher (list / list-all / list-sessions / history)│
+│  • preview_pane loop (background tail via tmux capture-pane)     │
+│  • pin_interactive (raw key read for Harpoon slot assignment)    │
+│  • cheat_sheet (static printf)                                   │
+│  Everything else: exec glance-engine "$@"                        │
+└──────────────────────────┬──────────────────────────────────────┘
+                           │ exec / subprocess
+┌──────────────────────────▼──────────────────────────────────────┐
+│  glance-engine  (Go binary)                                     │
+│                                                                 │
+│  cmd/glance-engine/main.go   ← thin arg dispatch               │
+│  internal/                                                      │
+│    tmux/       typed pane/session queries; injectable Executor  │
+│    state/      FileStore (atomic writes), bash-compat Lock      │
+│    sentinel/   O(1) commandMap, bash dispatch to sentinels/*.sh │
+│    scanner/    goroutine fan-out (pool=8), Scan/OnFocus/Status  │
+│    jumplist/   back/forward stacks; ShiftTo() fixes Issue #2    │
+│    slots/      Harpoon slot store                               │
+│    formatter/  FZF line renderers (attention/all/sessions/hist) │
+└──────────────────────────┬──────────────────────────────────────┘
+                           │ bash subprocess (source + call)
+┌──────────────────────────▼──────────────────────────────────────┐
+│  sentinels/*.sh  (bash, unchanged API)                          │
+│  sentinel_<name>_matches / _classify / _fingerprint             │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Data Flow Diagram
+
 ```mermaid
 flowchart TD
     subgraph Tmux Multiplexer Server
@@ -43,20 +79,24 @@ flowchart TD
         P4["Pane %4 (zsh prompt)"]
     end
 
-    subgraph tmux-glance Engine
-        Scan["scan_agents"]
-        Router["Sentinel Router"]
-        S_AGY["Sentinel: Antigravity\n(Normalizer + Classifier)"]
-        S_GEN["Sentinel: Generic\n(Hash screen fallback)"]
-        Lock["Atomic Directory Lock\n(~/.tmux-glance.lock)"]
-        State["State Store\n(~/.tmux-glance)"]
+    subgraph glance-engine ["glance-engine (Go binary)"]
+        Scan["scanner.Scan()"]
+        Router["sentinel.Registry.Resolve()"]
+        S_AGY["sentinels/antigravity.sh\n(bash subprocess)"]
+        S_GEN["sentinel.Fingerprint()\n(pure Go crypto/md5)"]
+        Lock["state.Lock\n(mkdir — bash compat)"]
+        State["state.FileStore\n(~/.tmux-glance)"]
+        JL["jumplist.Stack"]
+        Slots["slots.Store"]
+        Fmt["formatter.*List()"]
     end
 
-    subgraph Presentation & UI
+    subgraph Presentation
         Status["Tmux status-right\n'🚨 1  👁️ 1  🤖 ⏳ 1'"]
         Hub["Attention Hub (prefix b)\nUrgent tasks sorted by priority"]
-        Fleet["All Panes (prefix g)\nCross-session directory & pane teleporter"]
-        Preview["fzf ANSI Live Preview\n(tail -n 30 of active pane)"]
+        Fleet["All Panes (prefix g)\nCross-session pane teleporter"]
+        Sessions["Sessionizer (prefix s)\nWorkspace switcher + slot badges"]
+        Preview["fzf ANSI Live Preview\n(tmux capture-pane)"]
     end
 
     P1 & P2 & P3 & P4 --> Scan
@@ -65,13 +105,16 @@ flowchart TD
     Router --> S_GEN
     S_AGY & S_GEN --> Lock
     Lock --> State
-    State --> Status
-    State --> Hub
-    State --> Fleet
-    Hub & Fleet --> Preview
+    State --> Fmt
+    Fmt --> Status
+    Fmt --> Hub
+    Fmt --> Fleet
+    Fmt --> Sessions
+    JL --> Fmt
+    Slots --> Fmt
+    Hub & Fleet & Sessions --> Preview
 ```
 
----
 
 ## 4. The Pluggable Sentinel Architecture
 

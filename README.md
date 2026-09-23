@@ -419,8 +419,8 @@ just gh-issues
 - [x] **v0.3: Dynamic Vigil Watches** — Output diffing and hashing for arbitrary shell commands; automatic promotion of background watches (`👁️`) to alerts (`🚨`) with focus auto-acknowledgment (`pane-focus-in`).
 - [x] **v0.4: Standalone Flake & Pluggable Sentinels** — Standalone flake with Apache 2.0 license, modular sentinels (`antigravity`, `generic`), thinking spinner normalizer, $O(1)$ command routing table (`routes`), Home Manager module, and cross-platform GitHub Actions CI.
 - [x] **v0.5: Active Real-Time Tailing & Viewfinder Pinning** — Real-time 500ms diff-hashing preview tailing and bottom viewport locking (`:follow`) for live prompt and build tracking.
-- [x] **v0.6: In-Dashboard Sessionizer (`Ctrl-s`)** — Search and switch tmux sessions directly within the Glance dashboard, complete with ambient status badge summaries (`🚨 1`, `🤖 ⏳ 1`, `👁️ 2`) representing the state of each workspace.
-- [x] **v0.7: Jump History & Jumplist Backtracking (`Ctrl-h` / Undo-Redo)** — Dual Back/Forward jump stack for seamless pane navigation across sessions. Full in-viewer history stack (`Ctrl-h`), with opt-in instant undo/redo chords (`prefix C-z` / `prefix C-y` or repeatable `prefix -r u` / `U`) to jump straight back without opening a menu.
+- [x] **v0.6: In-Dashboard Sessionizer (`Ctrl-s`) & Jump History** — Search and switch tmux sessions directly within the Glance dashboard with ambient status badges. Dual Back/Forward jump stack (`Ctrl-h`, `jump-back`, `jump-forward`) with Harpoon slot assignment.
+- [x] **v0.7: Go Engine Rewrite** — Replaced the 1,816-line bash monolith with a typed Go binary (`glance-engine`) and a 140-line thin bash dispatcher (93% bash reduction). Goroutine fan-out for concurrent pane evaluation. Fixes Issues [#2](https://github.com/mhutchinson/tmux-glance/issues/2) (history frame-shift), [#3](https://github.com/mhutchinson/tmux-glance/issues/3) (sentinel `pane_id` missing), and [#5](https://github.com/mhutchinson/tmux-glance/issues/5) (stale vigil labels) structurally.
 
 ### Upcoming Roadmap
 
