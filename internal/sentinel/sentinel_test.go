@@ -2,15 +2,14 @@ package sentinel
 
 import (
 	"context"
-	"os"
-	"path/filepath"
 	"testing"
+
+	"github.com/mhutchinson/tmux-glance/internal/tmux"
 )
 
 func TestResolve_BuiltinCommands(t *testing.T) {
 	t.Parallel()
-	// Build a registry with the real sentinels dir so antigravity is loaded.
-	r, err := New([]string{sentinelsDir(t)}, nil, nil)
+	r, err := New(nil, nil, nil)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -37,10 +36,10 @@ func TestResolve_BuiltinCommands(t *testing.T) {
 
 func TestResolve_Caching(t *testing.T) {
 	t.Parallel()
-	r, _ := New([]string{sentinelsDir(t)}, nil, nil)
+	r, _ := New(nil, nil, nil)
 	// First call.
 	got1 := r.Resolve(context.Background(), "agy")
-	// Second call — should hit commandMap without re-execing bash.
+	// Second call — hits commandMap.
 	got2 := r.Resolve(context.Background(), "agy")
 	if got1 != "antigravity" || got2 != "antigravity" {
 		t.Errorf("caching broken: got %q / %q", got1, got2)
@@ -49,7 +48,7 @@ func TestResolve_Caching(t *testing.T) {
 
 func TestResolve_DisabledSentinel(t *testing.T) {
 	t.Parallel()
-	r, _ := New([]string{sentinelsDir(t)}, []string{"antigravity"}, nil)
+	r, _ := New(nil, []string{"antigravity"}, nil)
 	got := r.Resolve(context.Background(), "agy")
 	if got != "generic" {
 		t.Errorf("disabled sentinel should fall through to generic, got %q", got)
@@ -58,7 +57,7 @@ func TestResolve_DisabledSentinel(t *testing.T) {
 
 func TestResolve_RouteOverrides(t *testing.T) {
 	t.Parallel()
-	r, _ := New([]string{sentinelsDir(t)}, nil, map[string]string{"mycli": "antigravity"})
+	r, _ := New(nil, nil, map[string]string{"mycli": "antigravity"})
 	got := r.Resolve(context.Background(), "mycli")
 	if got != "antigravity" {
 		t.Errorf("route override: got %q, want antigravity", got)
@@ -118,24 +117,28 @@ func TestFingerprint_DifferentContent(t *testing.T) {
 	}
 }
 
-func TestDiscovery_UserDirOverridesBuiltin(t *testing.T) {
-	t.Parallel()
-	// Create a fake user sentinel dir with an antigravity.sh.
-	userDir := t.TempDir()
-	fakeScript := filepath.Join(userDir, "antigravity.sh")
-	os.WriteFile(fakeScript, []byte("#!/bin/bash\nsentinel_antigravity_matches() { return 0; }"), 0o755) //nolint:errcheck
+type fakeCustomSentinel struct{}
 
-	r, err := New([]string{userDir, sentinelsDir(t)}, nil, nil)
+func (f *fakeCustomSentinel) Name() string                                              { return "custom" }
+func (f *fakeCustomSentinel) Matches(p tmux.PaneInfo) bool                              { return p.Command == "my-agent" }
+func (f *fakeCustomSentinel) Classify(_ context.Context, _ tmux.PaneInfo, _ string) (Classification, error) {
+	return Classification{State: "waiting", Label: "custom alert"}, nil
+}
+func (f *fakeCustomSentinel) Fingerprint(_ context.Context, _ tmux.PaneInfo, _ string) (string, error) {
+	return "custom-hash", nil
+}
+
+func TestRegister_CustomSentinel(t *testing.T) {
+	t.Parallel()
+	r, err := New(nil, nil, nil)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	s := r.find("antigravity")
-	if s == nil {
-		t.Fatal("antigravity sentinel not found")
-	}
-	// The user dir version should win.
-	if s.ScriptPath != fakeScript {
-		t.Errorf("expected user sentinel at %q, got %q", fakeScript, s.ScriptPath)
+	r.Register(&fakeCustomSentinel{})
+
+	got := r.Resolve(context.Background(), "my-agent")
+	if got != "custom" {
+		t.Errorf("expected custom sentinel to resolve, got %q", got)
 	}
 }
 
@@ -166,15 +169,4 @@ func TestParseRouteOverrides(t *testing.T) {
 			}
 		})
 	}
-}
-
-// sentinelsDir returns the repo's bundled sentinels directory.
-func sentinelsDir(t *testing.T) string {
-	t.Helper()
-	// Walk up from the test file to find the repo root.
-	dir, err := filepath.Abs("../..")
-	if err != nil {
-		t.Fatalf("finding repo root: %v", err)
-	}
-	return filepath.Join(dir, "sentinels")
 }

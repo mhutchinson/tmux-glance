@@ -1,107 +1,69 @@
-// Package sentinel manages the routing table (command → sentinel name) and
-// dispatches classify/fingerprint calls to bash sentinel scripts via os/exec.
-// The bash sentinel API is unchanged — existing sentinels/*.sh files work
-// without modification.
+// Package sentinel manages agent classification, command routing, and buffer
+// normalization. Built-in sentinels are implemented natively in pure Go without
+// subprocess overhead.
 package sentinel
 
 import (
 	"context"
-	"crypto/md5"
 	"fmt"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
+
+	"github.com/mhutchinson/tmux-glance/internal/tmux"
 )
 
-// Classification is the result of calling sentinel_<name>_classify.
+// Classification is the result of calling a sentinel's Classify.
 type Classification struct {
-	State string // e.g. "waiting", "running", "done", "idle", "unknown"
+	State string // e.g. "waiting", "running", "done", "idle", "unknown", "watching"
 	Label string
 }
 
-// Sentinel represents a discovered sentinel plugin backed by a shell script.
-type Sentinel struct {
-	Name       string   // e.g. "antigravity"
-	ScriptPath string   // absolute path to the .sh file (empty for built-ins)
-	Commands   []string // default command names that map directly to this sentinel
+// Sentinel represents an agent classifier and buffer normalizer.
+type Sentinel interface {
+	Name() string
+	Matches(pane tmux.PaneInfo) bool
+	Classify(ctx context.Context, pane tmux.PaneInfo, buffer string) (Classification, error)
+	Fingerprint(ctx context.Context, pane tmux.PaneInfo, buffer string) (string, error)
 }
 
-// Registry holds the loaded sentinels and their command routing table.
+// Registry holds registered sentinels and resolves commands to matching sentinels.
 type Registry struct {
-	sentinels      []Sentinel
+	sentinels      map[string]Sentinel
+	order          []string // evaluation order (antigravity, ..., generic)
 	mu             sync.RWMutex
-	commandMap     map[string]string // cmd → sentinel name (cached)
+	commandMap     map[string]string // fast command-name cache
 	disabled       map[string]bool
 	routeOverrides map[string]string
-	// capturePaneFn allows tests to mock tmux capture-pane calls.
-	capturePaneFn func(ctx context.Context, paneID string) (string, error)
+	capturePaneFn  func(ctx context.Context, paneID string) (string, error)
 }
 
-// builtinSentinels defines the known default command lists for bundled sentinels.
-// These are consulted before any dynamic script-based resolution.
-var builtinCommands = map[string][]string{
-	"antigravity": {"agy", "antigravity"},
-	"generic":     {},
-}
-
-// New discovers sentinels from searchDirs (first found per name wins) and
-// returns a Registry ready to route commands.
-func New(searchDirs []string, disabled []string, routeOverrides map[string]string) (*Registry, error) {
+// New initializes the sentinel registry with built-in native sentinels.
+// searchDirs is preserved for interface compatibility.
+func New(_ []string, disabled []string, routeOverrides map[string]string) (*Registry, error) {
 	r := &Registry{
+		sentinels:      make(map[string]Sentinel),
 		commandMap:     make(map[string]string),
 		disabled:       make(map[string]bool),
 		routeOverrides: routeOverrides,
 	}
+
 	for _, d := range disabled {
-		r.disabled[strings.TrimSpace(d)] = true
-	}
-
-	// Discover sentinel scripts; first-found per name wins.
-	seen := make(map[string]bool)
-	for _, dir := range searchDirs {
-		if dir == "" {
-			continue
-		}
-		entries, err := os.ReadDir(dir)
-		if err != nil {
-			continue // non-existent or unreadable directories are silently skipped
-		}
-		for _, entry := range entries {
-			if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".sh") {
-				continue
-			}
-			name := strings.TrimSuffix(entry.Name(), ".sh")
-			if name == "generic" || seen[name] {
-				continue // generic is always last; skip duplicates
-			}
-			seen[name] = true
-			cmds, _ := builtinCommands[name] // use known list; empty for unknown scripts
-			r.sentinels = append(r.sentinels, Sentinel{
-				Name:       name,
-				ScriptPath: filepath.Join(dir, entry.Name()),
-				Commands:   cmds,
-			})
+		if d = strings.TrimSpace(d); d != "" {
+			r.disabled[d] = true
 		}
 	}
 
-	// Always append generic as the final fallback (no script path needed).
-	r.sentinels = append(r.sentinels, Sentinel{Name: "generic"})
+	// Register built-in native sentinels
+	r.Register(NewAntigravity(nil))
+	r.Register(NewGeneric())
 
-	// Pre-populate the routing table from sentinel default commands.
-	for _, s := range r.sentinels {
-		if r.disabled[s.Name] {
-			continue
-		}
-		for _, cmd := range s.Commands {
-			if cmd != "" {
-				r.commandMap[cmd] = s.Name
-			}
-		}
-	}
+	// Pre-populate commandMap for direct mappings
+	r.commandMap["agy"] = "antigravity"
+	r.commandMap["antigravity"] = "antigravity"
 
-	// Apply user route overrides (e.g. "chat=generic,my-cli=antigravity").
+	// Apply user route overrides
 	for cmd, target := range routeOverrides {
 		r.commandMap[strings.TrimSpace(cmd)] = strings.TrimSpace(target)
 	}
@@ -109,14 +71,50 @@ func New(searchDirs []string, disabled []string, routeOverrides map[string]strin
 	return r, nil
 }
 
-// Resolve returns the sentinel name for a given command string.
-// Returns "generic" for empty commands or if no specific sentinel matches.
-// Results are cached in commandMap for O(1) repeat lookups.
+// Register adds a sentinel to the registry. Generic is always evaluated last.
+func (r *Registry) Register(s Sentinel) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	name := s.Name()
+	r.sentinels[name] = s
+
+	// Maintain evaluation order with generic always at the end
+	var newOrder []string
+	for _, n := range r.order {
+		if n != name && n != "generic" {
+			newOrder = append(newOrder, n)
+		}
+	}
+	if name != "generic" {
+		newOrder = append(newOrder, name)
+	}
+	newOrder = append(newOrder, "generic")
+	r.order = newOrder
+}
+
+// Resolve returns the sentinel name for a command string (for backward compatibility).
 func (r *Registry) Resolve(ctx context.Context, cmd string) string {
+	return r.ResolvePane(ctx, tmux.PaneInfo{Command: cmd})
+}
+
+// ResolvePane matches a pane against registered sentinels, taking into account
+// command names, user route overrides, disabled sentinels, and process tree inspection.
+func (r *Registry) ResolvePane(ctx context.Context, pane tmux.PaneInfo) string {
+	cmd := strings.TrimSpace(pane.Command)
 	if cmd == "" {
 		return "generic"
 	}
 
+	// 1. Direct user route overrides (e.g. @glance_routes: "mycli=antigravity", "agy=generic")
+	if target, ok := r.routeOverrides[cmd]; ok {
+		if !r.disabled[target] {
+			return target
+		}
+		return "generic"
+	}
+
+	// 2. Disabled check for known commands
 	r.mu.RLock()
 	if name, ok := r.commandMap[cmd]; ok {
 		r.mu.RUnlock()
@@ -127,87 +125,72 @@ func (r *Registry) Resolve(ctx context.Context, cmd string) string {
 	}
 	r.mu.RUnlock()
 
-	// Dynamic fallback: call sentinel_<name>_matches via bash subprocess.
-	for _, s := range r.sentinels {
-		if s.Name == "generic" || r.disabled[s.Name] || s.ScriptPath == "" {
+	// 3. Dynamic match across registered sentinels in order
+	for _, name := range r.order {
+		if name == "generic" || r.disabled[name] {
 			continue
 		}
-		if r.bashMatches(ctx, s, cmd, "") {
-			r.mu.Lock()
-			r.commandMap[cmd] = s.Name
-			r.mu.Unlock()
-			return s.Name
+		s := r.sentinels[name]
+		if s.Matches(pane) {
+			// Cache direct command matches that don't depend on dynamic PID
+			if pane.PID == 0 || cmd == "agy" || cmd == "antigravity" {
+				r.mu.Lock()
+				r.commandMap[cmd] = name
+				r.mu.Unlock()
+			}
+			return name
 		}
 	}
 
-	r.mu.Lock()
-	r.commandMap[cmd] = "generic"
-	r.mu.Unlock()
+	// 4. Cache fallback to generic for static commands without PID
+	if pane.PID == 0 {
+		r.mu.Lock()
+		r.commandMap[cmd] = "generic"
+		r.mu.Unlock()
+	}
 	return "generic"
 }
 
-// Classify calls the appropriate sentinel's classify function for the given pane.
-// The generic sentinel is handled in pure Go; others delegate to a bash subprocess.
+// Classify captures the pane buffer and delegates classification to the named sentinel.
 func (r *Registry) Classify(ctx context.Context, name, paneID, path, cmd string) (Classification, error) {
-	if name == "generic" || name == "" {
-		return Classification{
-			State: "watching",
-			Label: cmd + " in " + filepath.Base(path),
-		}, nil
+	s := r.getSentinel(name)
+	buf, err := r.capture(ctx, paneID)
+	if err != nil && name != "generic" {
+		return Classification{State: "unknown", Label: filepath.Base(path)}, err
 	}
-	s := r.find(name)
-	if s == nil || s.ScriptPath == "" {
-		return Classification{State: "unknown", Label: name}, nil
+	pane := tmux.PaneInfo{
+		ID:      paneID,
+		Path:    path,
+		Command: cmd,
 	}
-	out, err := r.bashCall(ctx, s.ScriptPath, name, "classify", paneID, path, cmd)
-	if err != nil {
-		return Classification{State: "unknown"}, fmt.Errorf("sentinel %s classify: %w", name, err)
-	}
-	parts := strings.SplitN(strings.TrimSpace(out), "\t", 2)
-	c := Classification{State: strings.TrimSpace(parts[0])}
-	if len(parts) > 1 {
-		c.Label = strings.TrimSpace(parts[1])
-	}
-	return c, nil
+	return s.Classify(ctx, pane, buf)
 }
 
-// Fingerprint returns an MD5 hex digest of the (normalised) pane buffer.
-// For the generic sentinel, it uses crypto/md5 directly — no external binary.
-// For named sentinels, it delegates to sentinel_<name>_fingerprint via bash.
+// Fingerprint captures the pane buffer and computes the normalized fingerprint.
 func (r *Registry) Fingerprint(ctx context.Context, name, paneID string) (string, error) {
-	if name == "generic" || name == "" {
-		return r.genericFingerprint(ctx, paneID)
-	}
-	s := r.find(name)
-	if s == nil || s.ScriptPath == "" {
-		return r.genericFingerprint(ctx, paneID)
-	}
-	out, err := r.bashCall(ctx, s.ScriptPath, name, "fingerprint", paneID)
-	if err != nil {
-		// Fall back to generic fingerprint on error.
-		return r.genericFingerprint(ctx, paneID)
-	}
-	hash := strings.TrimSpace(out)
-	if hash == "" {
-		return r.genericFingerprint(ctx, paneID)
-	}
-	return hash, nil
-}
-
-// genericFingerprint captures a pane and returns the MD5 of its content.
-func (r *Registry) genericFingerprint(ctx context.Context, paneID string) (string, error) {
-	var content string
-	var err error
-	if r.capturePaneFn != nil {
-		content, err = r.capturePaneFn(ctx, paneID)
-	} else {
-		content, err = capturePane(ctx, paneID)
-	}
+	s := r.getSentinel(name)
+	buf, err := r.capture(ctx, paneID)
 	if err != nil {
 		return "", fmt.Errorf("capturing pane %s: %w", paneID, err)
 	}
-	sum := md5.Sum([]byte(content)) //nolint:gosec // MD5 used only for change detection, not security
-	return fmt.Sprintf("%x", sum), nil
+	pane := tmux.PaneInfo{ID: paneID}
+	return s.Fingerprint(ctx, pane, buf)
+}
+
+func (r *Registry) getSentinel(name string) Sentinel {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if s, ok := r.sentinels[name]; ok && !r.disabled[name] {
+		return s
+	}
+	return r.sentinels["generic"]
+}
+
+func (r *Registry) capture(ctx context.Context, paneID string) (string, error) {
+	if r.capturePaneFn != nil {
+		return r.capturePaneFn(ctx, paneID)
+	}
+	return capturePane(ctx, paneID)
 }
 
 // capturePane runs tmux capture-pane -p -t <paneID> and returns the output.
@@ -217,42 +200,6 @@ func capturePane(ctx context.Context, paneID string) (string, error) {
 		return "", err
 	}
 	return string(out), nil
-}
-
-// bashMatches calls sentinel_<name>_matches via a bash subprocess.
-// Returns true if exit code is 0.
-func (r *Registry) bashMatches(ctx context.Context, s Sentinel, cmd, paneID string) bool {
-	args := []string{"-c",
-		fmt.Sprintf("source %q; sentinel_%s_matches \"$@\"", s.ScriptPath, s.Name),
-		"_", cmd,
-	}
-	if paneID != "" {
-		args = append(args, paneID)
-	}
-	err := exec.CommandContext(ctx, "bash", args...).Run()
-	return err == nil
-}
-
-// bashCall invokes a sentinel function (classify or fingerprint) via bash.
-func (r *Registry) bashCall(ctx context.Context, scriptPath, name, fn string, extraArgs ...string) (string, error) {
-	bashScript := fmt.Sprintf("source %q; sentinel_%s_%s \"$@\"", scriptPath, name, fn)
-	args := append([]string{"-c", bashScript, "_"}, extraArgs...)
-	cmd := exec.CommandContext(ctx, "bash", args...)
-	out, err := cmd.Output()
-	if err != nil {
-		return "", fmt.Errorf("bash sentinel_%s_%s: %w", name, fn, err)
-	}
-	return string(out), nil
-}
-
-// find returns the Sentinel with the given name, or nil.
-func (r *Registry) find(name string) *Sentinel {
-	for i := range r.sentinels {
-		if r.sentinels[i].Name == name {
-			return &r.sentinels[i]
-		}
-	}
-	return nil
 }
 
 // ParseRouteOverrides parses a comma-separated "cmd=sentinel,..." string

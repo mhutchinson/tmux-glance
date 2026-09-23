@@ -12,7 +12,7 @@
 | **[README.md](README.md)** | User-facing documentation | Problem statement, feature demos, installation methods (Nix Flake, Home Manager, TPM, manual), and the [Milestones & Roadmap](README.md#%EF%B8%8F-milestones--roadmap). |
 | **[DESIGN.md](DESIGN.md)** | Canonical architecture & design | Component data flow, [Core Philosophy & Invariants](DESIGN.md#2-core-philosophy--architectural-invariants), [Tiered Keybindings](DESIGN.md#6-ergonomics--tiered-keybinding-architecture), state locking, and deep-dive technical specs. |
 | **[Justfile](Justfile)** | Local workflow automation | Standard recipes for testing (`just test`), linting (`just lint`), building (`just build`), full verification (`just ci`), and GitHub management. |
-| **[`sentinels/`](sentinels/)** | Modular agent classifiers | The pluggable sentinel contract: `sentinel_<name>_classify` and `sentinel_<name>_fingerprint`. |
+| **[`internal/sentinel/`](internal/sentinel/)** | Modular agent classifiers | The native Go sentinel contract: `sentinel.Sentinel` interface (`Matches`, `Classify`, `Fingerprint`). |
 
 ---
 
@@ -22,7 +22,7 @@ Before editing code or writing tests, verify your plan against these hard archit
 
 * [ ] **Minimally Invasive by Default:** Only Tier 1 non-disruptive keys (`prefix g`, `prefix b`, `prefix v`) are registered by default. Any direct-jump chords, jumplist rewinds, or quickfix cycling MUST be Tier 2 opt-ins (`@glance_enable_*` / HM options). Never hijack built-in tmux keys (`prefix [` copy-mode, `c`, `z`, `n`, `p`).
 * [ ] **Sub-50ms Status Budget:** `tmux-glance status` runs on `status-interval` (<50ms budget). Zero network requests or heavy subshell pipelines. External metrics (e.g. quota gauges) must strictly read pre-warmed local cache files written out-of-band.
-* [ ] **Thinking & Spinner Normalization:** Terminal buffers must pass through `sentinel_<name>_fingerprint` to strip animated braille spinners (`[⠋⠙⠹...]`) and streaming thinking lines before computing hashes. Thinking is not an unread alert.
+* [ ] **Thinking & Spinner Normalization:** Terminal buffers must pass through sentinel fingerprinting (`internal/sentinel`) to strip animated braille spinners (`[⠋⠙⠹...]`) and streaming thinking lines before computing hashes. Thinking is not an unread alert.
 * [ ] **Dwell-Time Auto-Ack Protection:** Rapid navigation across panes must suppress `pane-focus-in` auto-acknowledgment until dwell time expires, avoiding accidental alert dismissal when whizzing past.
 * [ ] **Atomic Concurrency:** All state modifications must use directory locking (`acquire_lock` via `mkdir`) and atomic file moves (`mv`).
 * [ ] **Viewfinder Pinning:** Live preview windows must specify `--preview-window='down:60%:wrap:follow'` to remain locked to the bottom line (active prompt / compiler output).

@@ -28,7 +28,7 @@ func (f *fakeExec) Run(_ context.Context, args ...string) (string, error) {
 func TestListAllPanes(t *testing.T) {
 	t.Parallel()
 	fake := &fakeExec{responses: map[string]string{
-		"list-panes -a -F #{pane_id}|#{session_name}|#{window_index}|#{pane_index}|#{pane_current_path}|#{pane_current_command}|#{pane_tty}": "%1|main|0|0|/home/user/repo|zsh|/dev/pts/0\n%2|work|1|1|/tmp|vim|/dev/pts/1",
+		"list-panes -a -F #{pane_id}|#{session_name}|#{window_index}|#{pane_index}|#{pane_current_path}|#{pane_current_command}|#{pane_tty}|#{pane_pid}": "%1|main|0|0|/home/user/repo|zsh|/dev/pts/0|1234\n%2|work|1|1|/tmp|vim|/dev/pts/1|5678",
 	}}
 	c := New(fake)
 	panes, err := c.ListAllPanes(context.Background())
@@ -42,8 +42,8 @@ func TestListAllPanes(t *testing.T) {
 		idx  int
 		want PaneInfo
 	}{
-		{0, PaneInfo{ID: "%1", Session: "main", Window: 0, Pane: 0, Path: "/home/user/repo", Command: "zsh", TTY: "/dev/pts/0"}},
-		{1, PaneInfo{ID: "%2", Session: "work", Window: 1, Pane: 1, Path: "/tmp", Command: "vim", TTY: "/dev/pts/1"}},
+		{0, PaneInfo{ID: "%1", Session: "main", Window: 0, Pane: 0, Path: "/home/user/repo", Command: "zsh", TTY: "/dev/pts/0", PID: 1234}},
+		{1, PaneInfo{ID: "%2", Session: "work", Window: 1, Pane: 1, Path: "/tmp", Command: "vim", TTY: "/dev/pts/1", PID: 5678}},
 	}
 	for _, tt := range tests {
 		got := panes[tt.idx]
@@ -68,7 +68,7 @@ func TestListAllPanes_Empty(t *testing.T) {
 func TestListAllPanes_MalformedLines(t *testing.T) {
 	t.Parallel()
 	fake := &fakeExec{responses: map[string]string{
-		"list-panes -a -F #{pane_id}|#{session_name}|#{window_index}|#{pane_index}|#{pane_current_path}|#{pane_current_command}|#{pane_tty}": "%1|main|0|0|/repo|zsh|/dev/pts/0\nbad-line\n",
+		"list-panes -a -F #{pane_id}|#{session_name}|#{window_index}|#{pane_index}|#{pane_current_path}|#{pane_current_command}|#{pane_tty}|#{pane_pid}": "%1|main|0|0|/repo|zsh|/dev/pts/0|999\nbad-line\n",
 	}}
 	c := New(fake)
 	panes, err := c.ListAllPanes(context.Background())

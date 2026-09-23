@@ -1,10 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=/dev/null
-source "$SCRIPT_DIR/../sentinels/antigravity.sh"
-
 echo "=== [TEST] Antigravity Thinking Spinner & Buffer Normalization ==="
 
 # Helper function that runs the exact normalizer pipeline on stdin text

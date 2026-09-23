@@ -46,9 +46,9 @@ live: go-build
 # Run ShellCheck across all scripts
 lint:
     @if command -v shellcheck >/dev/null 2>&1; then \
-        shellcheck bin/tmux-glance sentinels/*.sh glance.tmux tests/*.sh; \
+        shellcheck bin/tmux-glance glance.tmux tests/*.sh; \
     else \
-        nix run nixpkgs#shellcheck -- bin/tmux-glance sentinels/*.sh glance.tmux tests/*.sh; \
+        nix run nixpkgs#shellcheck -- bin/tmux-glance glance.tmux tests/*.sh; \
     fi
 
 # Run all local CI verification steps (lint, go-test, test, check)

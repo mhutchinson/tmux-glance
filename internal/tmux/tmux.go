@@ -20,6 +20,7 @@ type PaneInfo struct {
 	Path    string
 	Command string
 	TTY     string
+	PID     int
 }
 
 // SessionInfo holds live metadata for a tmux session.
@@ -78,7 +79,7 @@ func (c *Client) run(ctx context.Context, ignoreMissing bool, args ...string) (s
 
 // ListAllPanes returns PaneInfo for every pane on the tmux server.
 func (c *Client) ListAllPanes(ctx context.Context) ([]PaneInfo, error) {
-	format := "#{pane_id}|#{session_name}|#{window_index}|#{pane_index}|#{pane_current_path}|#{pane_current_command}|#{pane_tty}"
+	format := "#{pane_id}|#{session_name}|#{window_index}|#{pane_index}|#{pane_current_path}|#{pane_current_command}|#{pane_tty}|#{pane_pid}"
 	out, err := c.run(ctx, true, "list-panes", "-a", "-F", format)
 	if err != nil || out == "" {
 		return nil, err
@@ -89,12 +90,16 @@ func (c *Client) ListAllPanes(ctx context.Context) ([]PaneInfo, error) {
 		if line == "" {
 			continue
 		}
-		parts := strings.SplitN(line, "|", 7)
+		parts := strings.SplitN(line, "|", 8)
 		if len(parts) < 7 {
 			continue
 		}
 		win, _ := strconv.Atoi(parts[2])
 		pane, _ := strconv.Atoi(parts[3])
+		var pid int
+		if len(parts) >= 8 {
+			pid, _ = strconv.Atoi(parts[7])
+		}
 		panes = append(panes, PaneInfo{
 			ID:      parts[0],
 			Session: parts[1],
@@ -103,6 +108,7 @@ func (c *Client) ListAllPanes(ctx context.Context) ([]PaneInfo, error) {
 			Path:    parts[4],
 			Command: parts[5],
 			TTY:     parts[6],
+			PID:     pid,
 		})
 	}
 	return panes, nil

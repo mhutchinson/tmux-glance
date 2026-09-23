@@ -90,7 +90,7 @@ func (sc *Scanner) Scan(ctx context.Context, force bool) error {
 	// Identify candidates (agent panes + manual vigils).
 	var candidates []tmux.PaneInfo
 	for _, p := range allPanes {
-		sentName := sc.sentinel.Resolve(ctx, p.Command)
+		sentName := sc.sentinel.ResolvePane(ctx, p)
 		_, tracked := stateByID[p.ID]
 		if sentName == "generic" && !tracked {
 			continue // fast-path: untracked generic pane
@@ -170,7 +170,9 @@ func (sc *Scanner) OnFocus(ctx context.Context, paneID string) error {
 				sc.tmux.RefreshClients(ctx)  //nolint:errcheck
 			} else {
 				cmd, _ := sc.tmux.GetPaneField(ctx, paneID, "#{pane_current_command}")
-				sentName := sc.sentinel.Resolve(ctx, cmd)
+				pidStr, _ := sc.tmux.GetPaneField(ctx, paneID, "#{pane_pid}")
+				pid, _ := strconv.Atoi(pidStr)
+				sentName := sc.sentinel.ResolvePane(ctx, tmux.PaneInfo{ID: paneID, Command: cmd, PID: pid})
 				if sentName != "generic" {
 					path, _ := sc.tmux.GetPaneField(ctx, paneID, "#{pane_current_path}")
 					cls, err := sc.sentinel.Classify(ctx, sentName, paneID, path, cmd)
@@ -192,7 +194,9 @@ func (sc *Scanner) OnFocus(ctx context.Context, paneID string) error {
 
 	// Always sync agent snapshot on focus if the pane runs an agent.
 	cmd, _ := sc.tmux.GetPaneField(ctx, paneID, "#{pane_current_command}")
-	sentName := sc.sentinel.Resolve(ctx, cmd)
+	pidStr, _ := sc.tmux.GetPaneField(ctx, paneID, "#{pane_pid}")
+	pid, _ := strconv.Atoi(pidStr)
+	sentName := sc.sentinel.ResolvePane(ctx, tmux.PaneInfo{ID: paneID, Command: cmd, PID: pid})
 	if sentName != "generic" {
 		hash, _ := sc.sentinel.Fingerprint(ctx, sentName, paneID)
 		sc.tmux.SetPaneOption(ctx, paneID, "@glance_agent_snapshot", hash) //nolint:errcheck
@@ -255,7 +259,7 @@ func (sc *Scanner) StatusSummary(ctx context.Context) (string, error) {
 
 // evaluateCandidate classifies a single candidate pane and returns the action to take.
 func (sc *Scanner) evaluateCandidate(ctx context.Context, p tmux.PaneInfo, existing state.Entry, isFocused bool) paneResult {
-	sentName := sc.sentinel.Resolve(ctx, p.Command)
+	sentName := sc.sentinel.ResolvePane(ctx, p)
 	hasExisting := existing.PaneID != ""
 
 	// Refresh live metadata for Issue #5 (stale vigil labels).

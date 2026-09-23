@@ -41,5 +41,5 @@ jobs:
       - name: Run ShellCheck
         uses: ludeeus/action-shellcheck@master
         with:
-          scandir: './bin ./sentinels ./tests'
+          scandir: './bin ./tests'
           ignore_paths: './nix'

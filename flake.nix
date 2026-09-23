@@ -56,24 +56,22 @@
             buildInputs = [ glance-engine ];
 
             installPhase = ''
-              mkdir -p $out/bin $out/share/tmux-glance/sentinels
+              mkdir -p $out/bin $out/share/tmux-glance
 
               # Install the Go engine binary.
               cp ${glance-engine}/bin/glance-engine $out/bin/glance-engine
 
-              # Install the thin bash dispatcher, sentinels, and plugin entry point.
+              # Install the thin bash dispatcher and plugin entry point.
               cp bin/tmux-glance $out/bin/tmux-glance
-              cp sentinels/*.sh $out/share/tmux-glance/sentinels/
               cp glance.tmux $out/share/tmux-glance/
 
               chmod +x \
                 $out/bin/tmux-glance \
                 $out/bin/glance-engine \
-                $out/share/tmux-glance/sentinels/*.sh \
                 $out/share/tmux-glance/glance.tmux
 
-              # Wrap tmux-glance so it can find glance-engine (same bin dir),
-              # the sentinel scripts, and all required POSIX/fzf tools.
+              # Wrap tmux-glance so it can find glance-engine (same bin dir)
+              # and all required POSIX/fzf tools.
               wrapProgram $out/bin/tmux-glance \
                 --prefix PATH : ${pkgs.lib.makeBinPath [
                   pkgs.tmux
@@ -82,8 +80,7 @@
                   pkgs.gnused
                   pkgs.coreutils
                 ]} \
-                --prefix PATH : $out/bin \
-                --set TMUX_GLANCE_SENTINEL_DIR "$out/share/tmux-glance/sentinels"
+                --prefix PATH : $out/bin
             '';
 
             meta = with pkgs.lib; {
@@ -145,7 +142,7 @@
             chmod -R u+w .
             # Install the built engine binary so bin/tmux-glance can find it.
             cp ${enginePkg}/bin/glance-engine bin/glance-engine
-            chmod +x bin/* sentinels/* tests/*
+            chmod +x bin/* tests/*
             patchShebangs .
             bash tests/run_tests.sh | tee $out/test.log
           '';

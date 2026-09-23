@@ -53,18 +53,13 @@ As of v0.7, all stateful engine logic has moved to **`glance-engine`**, a compil
 │                                                                 │
 │  cmd/glance-engine/main.go   ← thin arg dispatch               │
 │  internal/                                                      │
-│    tmux/       typed pane/session queries; injectable Executor  │
+│    tmux/       typed pane/session queries; process tree inspect │
 │    state/      FileStore (atomic writes), bash-compat Lock      │
-│    sentinel/   O(1) commandMap, bash dispatch to sentinels/*.sh │
+│    sentinel/   native Go sentinels (antigravity, generic)       │
 │    scanner/    goroutine fan-out (pool=8), Scan/OnFocus/Status  │
 │    jumplist/   back/forward stacks; ShiftTo() fixes Issue #2    │
 │    slots/      Harpoon slot store                               │
 │    formatter/  FZF line renderers (attention/all/sessions/hist) │
-└──────────────────────────┬──────────────────────────────────────┘
-                           │ bash subprocess (source + call)
-┌──────────────────────────▼──────────────────────────────────────┐
-│  sentinels/*.sh  (bash, unchanged API)                          │
-│  sentinel_<name>_matches / _classify / _fingerprint             │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -81,9 +76,9 @@ flowchart TD
 
     subgraph glance-engine ["glance-engine (Go binary)"]
         Scan["scanner.Scan()"]
-        Router["sentinel.Registry.Resolve()"]
-        S_AGY["sentinels/antigravity.sh\n(bash subprocess)"]
-        S_GEN["sentinel.Fingerprint()\n(pure Go crypto/md5)"]
+        Router["sentinel.Registry.ResolvePane()"]
+        S_AGY["sentinel.Antigravity\n(pure Go in-memory)"]
+        S_GEN["sentinel.Generic\n(pure Go in-memory)"]
         Lock["state.Lock\n(mkdir — bash compat)"]
         State["state.FileStore\n(~/.tmux-glance)"]
         JL["jumplist.Stack"]
@@ -116,34 +111,26 @@ flowchart TD
 ```
 
 
-## 4. The Pluggable Sentinel Architecture
+## 4. The Sentinel Architecture
 
-Pane monitoring logic is decoupled into modular Sentinel shell modules located in `sentinels/*.sh` or user configuration (`~/.config/tmux-glance/sentinels/*.sh`).
+Pane monitoring logic is implemented via modular `sentinel.Sentinel` implementations in `internal/sentinel/`. First-class sentinels (`antigravity`, `generic`) run in pure Go in-memory with zero subprocess forks.
 
 ### Sentinel Contract
 
-Every Sentinel implements three functions:
+Every Sentinel implements the `sentinel.Sentinel` interface:
 
-```bash
-# 1. Matcher: Returns 0 if this sentinel handles the given command name
-sentinel_<name>_matches() {
-    local cmd="$1"
-    ...
-}
-
-# 2. Classifier: Returns tab-delimited "state\tlabel"
-#    States: waiting | running | done | idle | unknown
-sentinel_<name>_classify() {
-    local pane_id="$1" path="$2" cmd="$3"
-    ...
-}
-
-# 3. Fingerprint: Outputs an MD5 hash of the normalized visible buffer
-sentinel_<name>_fingerprint() {
-    local pane_id="$1"
-    ...
+```go
+type Sentinel interface {
+	Name() string
+	Matches(pane tmux.PaneInfo) bool
+	Classify(ctx context.Context, pane tmux.PaneInfo, buffer string) (Classification, error)
+	Fingerprint(ctx context.Context, pane tmux.PaneInfo, buffer string) (string, error)
 }
 ```
+
+#### Process Tree Inspection (Issue #3)
+Sentinels receive the full `tmux.PaneInfo`, including `pane.PID` (retrieved via `#{pane_pid}` in a single batched `list-panes` call).
+When command names are generic wrappers (e.g. `cli`, `agent`, `run`), `Matches(pane)` invokes `tmux.InspectProcessTree(ctx, pane.PID)` to inspect process command lines (reading `/proc/<pid>/cmdline` on Linux or `ps` on macOS), disambiguating agent processes from unrelated CLIs without requiring manual `@glance_routes` overrides.
 
 ### In-Scope Sentinels
 

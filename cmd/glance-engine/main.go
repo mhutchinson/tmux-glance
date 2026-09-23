@@ -102,13 +102,17 @@ func run(ctx context.Context, args []string) error {
 		})
 
 	case "get-sentinel":
-		// Prints the resolved sentinel name for a given command string.
+		// Prints the resolved sentinel name for a given command string and optional PID.
 		// Used by tests instead of the old bash get_sentinel function.
 		sentinelCmd := ""
 		if len(rest) > 0 {
 			sentinelCmd = rest[0]
 		}
-		fmt.Println(reg.Resolve(ctx, sentinelCmd))
+		var pid int
+		if len(rest) > 1 {
+			pid, _ = strconv.Atoi(rest[1])
+		}
+		fmt.Println(reg.ResolvePane(ctx, tmux.PaneInfo{Command: sentinelCmd, PID: pid}))
 		return nil
 
 	case "scan":
