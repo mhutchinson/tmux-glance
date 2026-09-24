@@ -6,7 +6,7 @@ default:
 
 # Run unit and integration test suite
 test: go-build
-    bash tests/run_tests.sh
+    env -u TMUX -u TMUX_PANE bash tests/run_tests.sh
 
 # Build the Go engine binary into bin/
 go-build:

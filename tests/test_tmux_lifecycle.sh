@@ -4,6 +4,9 @@ set -euo pipefail
 export LC_ALL="${LC_ALL:-C.UTF-8}"
 export LANG="${LANG:-C.UTF-8}"
 
+# Ensure test execution never inherits or interacts with an active outer tmux session
+unset TMUX TMUX_PANE
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BIN="$(cd "$SCRIPT_DIR/.." && pwd)/bin/tmux-glance"
 
@@ -439,7 +442,7 @@ fi
 
 # 22. Interactive Viewfinder FZF Argument & Keybinding Syntax Validation
 echo -n "Test 21: Full interactive popup fzf option and keybinding syntax... "
-fzf_err=$(TMUX_GLANCE_FZF_FILTER="test" TMUX_GLANCE_STATE_FILE="$STATE_FILE" bash "$BIN" list-sessions 2>&1 >/dev/null || true)
+fzf_err=$(TMUX_GLANCE_FZF_FILTER="test" TMUX_GLANCE_STATE_FILE="$STATE_FILE" TMUX="$SOCK,1,0" bash "$BIN" list-sessions 2>&1 >/dev/null || true)
 if [[ -z "$fzf_err" ]]; then
     echo "PASS"
 else

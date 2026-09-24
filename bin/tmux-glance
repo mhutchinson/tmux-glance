@@ -198,6 +198,12 @@ list_bookmarks() {
         --preview-window='down:60%:wrap:follow' \
     ) || true
 
+    if [[ -n "${TMUX_GLANCE_FZF_FILTER:-}" ]]; then
+        # When TMUX_GLANCE_FZF_FILTER is set, fzf runs non-interactively with --filter (e.g. during test suites).
+        # Never execute client switching or pane jumps during non-interactive filter checks.
+        return 0
+    fi
+
     if [[ -n "$selected" ]]; then
         if [[ "$selected" =~ "📍 CUR" ]]; then
             return 0
