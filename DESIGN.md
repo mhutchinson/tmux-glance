@@ -249,6 +249,12 @@ Global navigation chords, jumplist rewinds, and queue cycling can collide with p
 
 ## 7. Design Evolution Log
 
+* **v0.8 Attention Quickfix Cycling & Repeatable Navigation:**
+  - Implemented cyclic, Vim-quickfix-style navigation (`next-attention` / `prev-attention`, aliases `cnext` / `cprev`) cycling across active attention panes via Tier 2 opt-in repeatable chords (`prefix -r ]` / `prefix -r [`).
+  - Strict deterministic queue ordering sorted by severity rank (`🚨 Alert` > `🤖 ⏳ Waiting` > `🤖 ✓ Finished`).
+  - Preserved the "whiz-past" invariant: rapid traversal suppresses instantaneous `pane-focus-in` auto-acknowledgment so alerts remain queued during navigation until dwell time expires.
+  - Implemented 2-keystroke repeatable jump history flipping (`prefix -r <` / `prefix -r >`) and client repeat mode preservation across jumps.
+  - Interactive status feedback (`Glance [1/3] 🚨 Alert: session (label)`).
 * **v0.7 Jump History & Backtracking Jumplist:**
   - Implemented dual back/forward traversal stack (`jump-back` / `jump-forward`) with liveness verification.
   - In-modal history inspector (`Ctrl-h`) in viewfinder with live pane previewing and fast teleportation.
@@ -275,29 +281,6 @@ Global navigation chords, jumplist rewinds, and queue cycling can collide with p
 
 ## 8. Future Roadmap & Explorations
 
-* **v0.8: Quickfix Attention Cycling & Queue HUD (`prefix -r ]` / `prefix -r [`):**
-  - Instant Vim-quickfix-style navigation (`:cnext` / `:cprev`) cycling through all panes currently contributing active icons to `status-right`.
-  - **Strict Deterministic Queue Ordering:**
-    1. *Primary Sort (Severity Rank):* Alerts (`🚨`) > Blocked Agents (`🤖 ⏳`) > Finished Tasks (`🤖 ✓`).
-    2. *Secondary Tie-Breaker:* Stable ordering by state timestamp (oldest pending prompt first) or server pane hierarchy (`session:window.pane`) to ensure predictable muscle memory.
-  - **Repeatable Keybindings (Tier 2 Opt-in via `-r`):**
-    - `prefix -r ]` — Jump to next attention item.
-    - `prefix -r [` — Jump to previous attention item.
-    - Rapid tapping (e.g. `prefix ] ] ]`) allows whizzing across multiple items within tmux's `repeat-time` window without re-pressing `prefix`.
-  - **Visual Queue HUD & Progress Feedback:**
-    - Avoids spatial disorientation during rapid jumps:
-      - *Top-Right Floating HUD:* A mini-popup docked at the top-right corner (`-x R -y 0`) showing the mini-queue with an active cursor:
-        ```text
-        ┌ Attention Queue (2/3) ┐
-        │ 1. 🚨 cargo test       │
-        │>2. 🤖 ⏳ agy prompt    │
-        │ 3. 🤖 ✓ backend auth   │
-        └────────────────────────┘
-        ```
-      - *Status Bar Override:* Alternatively, temporarily override `status-right` or flash a tmux message: `[2/3] 🤖 ⏳ agy (nix-home) "permission required" — [ / ] to cycle`.
-  - **Dwell-Time Auto-Ack Protection ("The Whiz-Past Invariant"):**
-    - Rapidly stepping past panes suppresses the `pane-focus-in` auto-acknowledgment hook.
-    - An alert is only cleared once cycling ceases (repeatable timer expires and user remains dwell-focused on the pane) or upon explicit user interaction in the pane, preventing accidental dismissal of unread alerts.
 * **v0.9: Global Agent Quotas & Saturation Gauges (`sentinel_<name>_gauge`):**
   - Allow sentinels to optionally contribute a single, global capacity or quota gauge (e.g. LLM API token quota, hourly request limits, or harness saturation).
   - **Threshold Visibility Rule:** Quota gauges only appear in `status-right` when depleted below **20%** (e.g. `#[fg=#fab387]🪫 18%#[default]`, escalating to `#[fg=#f38ba8,bold]⚠️ 4%#[default]`). When >20%, `status-right` remains completely quiet and uncluttered.
