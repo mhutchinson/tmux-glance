@@ -103,15 +103,13 @@ func TestAttentionList_AgentBadges(t *testing.T) {
 
 func TestAllPanesList_Empty(t *testing.T) {
 	t.Parallel()
-	out := AllPanesList(nil, []tmux.PaneInfo{
-		{ID: "%1", Session: "s", Window: 0, Pane: 0, Path: "/a", Command: "zsh"},
-	}, nopResolver{})
+	out := AllPanesList(nil, nil, nopResolver{})
 	if !strings.Contains(out, "Empty") {
-		t.Errorf("no agent panes → should show Empty row, got:\n%s", out)
+		t.Errorf("no panes → should show Empty row, got:\n%s", out)
 	}
 }
 
-func TestAllPanesList_AgentPaneShows(t *testing.T) {
+func TestAllPanesList_GlobalIncludesAllPanes(t *testing.T) {
 	t.Parallel()
 	panes := []tmux.PaneInfo{
 		{ID: "%1", Session: "s", Window: 0, Pane: 0, Path: "/repo", Command: "agy"},
@@ -121,8 +119,32 @@ func TestAllPanesList_AgentPaneShows(t *testing.T) {
 	if !strings.Contains(out, "%1") {
 		t.Errorf("agent pane %%1 should appear in all-panes list:\n%s", out)
 	}
+	if !strings.Contains(out, "%2") {
+		t.Errorf("generic pane %%2 should ALSO appear in global all-panes list:\n%s", out)
+	}
+	if !strings.Contains(out, "💻 Pane") {
+		t.Errorf("generic pane should have '💻 Pane' badge:\n%s", out)
+	}
+
+	idx1 := strings.Index(out, "%1")
+	idx2 := strings.Index(out, "%2")
+	if idx1 > idx2 {
+		t.Errorf("agent pane %%1 should sort before generic pane %%2:\n%s", out)
+	}
+}
+
+func TestBotsList_FiltersGenericPanes(t *testing.T) {
+	t.Parallel()
+	panes := []tmux.PaneInfo{
+		{ID: "%1", Session: "s", Window: 0, Pane: 0, Path: "/repo", Command: "agy"},
+		{ID: "%2", Session: "s", Window: 0, Pane: 1, Path: "/other", Command: "zsh"},
+	}
+	out := BotsList(nil, panes, agentResolver{})
+	if !strings.Contains(out, "%1") {
+		t.Errorf("agent pane %%1 should appear in bots list:\n%s", out)
+	}
 	if strings.Contains(out, "%2") {
-		t.Errorf("generic pane %%2 should NOT appear in all-panes list:\n%s", out)
+		t.Errorf("generic pane %%2 should NOT appear in bots list:\n%s", out)
 	}
 }
 

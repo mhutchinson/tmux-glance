@@ -25,11 +25,19 @@ func truncate(s string, maxLen int) string {
 	return s[:maxLen-3] + "..."
 }
 
-// AttentionList renders the Attention Hub (alerts + vigils + agent states).
-// Returns one tab-delimited line per entry, sorted by priority.
-func AttentionList(entries []state.Entry) string {
-	if len(entries) == 0 {
-		return emptyRow("👁️ Empty      ", "No active vigils or agent alerts (Ctrl-b for all panes)")
+// BotsList renders the Bots & Views view: all active agent alerts,
+// blocked waiting states, finished states, running states, manual vigils,
+// and idle agent sentinels. Sorted strictly by severity/priority:
+// 1. Alert (🚨)
+// 2. Waiting (🤖 ⏳)
+// 3. Finished (🤖 ✓)
+// 4. Running (🤖 ⚡)
+// 5. Vigil (👁️)
+// 6. Idle (🤖 💤)
+func BotsList(entries []state.Entry, panes []tmux.PaneInfo, reg SentinelResolver) string {
+	stateByID := make(map[string]state.Entry, len(entries))
+	for _, e := range entries {
+		stateByID[e.PaneID] = e
 	}
 
 	type row struct {
@@ -50,7 +58,28 @@ func AttentionList(entries []state.Entry) string {
 		rows = append(rows, row{prio: prio, display: display})
 	}
 
-	sort.Slice(rows, func(i, j int) bool { return rows[i].prio < rows[j].prio })
+	if reg != nil {
+		for _, p := range panes {
+			if _, tracked := stateByID[p.ID]; tracked {
+				continue
+			}
+			sentName := reg.Resolve(p.Command)
+			if sentName != "generic" {
+				badge := "🤖 💤 Idle    "
+				ctx := truncate(fmt.Sprintf("[%s:%d.%d] %s", p.Session, p.Window, p.Pane, p.Command), 16)
+				repo := truncate(filepath.Base(p.Path), 24)
+				label := truncate("idle in "+filepath.Base(p.Path), 32)
+				display := fmt.Sprintf("%s│ %-16s │ %-24s │ %s\t%s", badge, ctx, repo, label, p.ID)
+				rows = append(rows, row{prio: 6, display: display})
+			}
+		}
+	}
+
+	if len(rows) == 0 {
+		return emptyRow("🤖 Empty      ", "No active agents or vigils found (Ctrl-g for all panes)")
+	}
+
+	sort.SliceStable(rows, func(i, j int) bool { return rows[i].prio < rows[j].prio })
 	var sb strings.Builder
 	for _, r := range rows {
 		sb.WriteString(r.display)
@@ -59,39 +88,68 @@ func AttentionList(entries []state.Entry) string {
 	return sb.String()
 }
 
-// AllPanesList renders the All Panes (Go-To) view: every pane that has an
-// agent or vigil badge, plus idle agent panes.
+// AttentionList renders the legacy Attention Hub (alerts + vigils + agent states).
+// Preserved for backward compatibility.
+func AttentionList(entries []state.Entry) string {
+	return BotsList(entries, nil, nil)
+}
+
+// AllPanesList renders the Global (All Panes) view: every single pane across
+// all tmux sessions and windows. Badged and tracked panes (alerts, waiting,
+// running, vigils, idle agents) sort to the top, followed by standard/generic panes.
 func AllPanesList(entries []state.Entry, panes []tmux.PaneInfo, reg SentinelResolver) string {
+	if len(panes) == 0 {
+		return emptyRow("💻 Empty      ", "No active tmux panes found")
+	}
+
 	stateByID := make(map[string]state.Entry, len(entries))
 	for _, e := range entries {
 		stateByID[e.PaneID] = e
 	}
 
-	count := 0
-	var sb strings.Builder
+	type row struct {
+		prio    int
+		display string
+	}
+	var rows []row
+
 	for _, p := range panes {
 		e, tracked := stateByID[p.ID]
-		sentName := reg.Resolve(p.Command)
+		sentName := "generic"
+		if reg != nil {
+			sentName = reg.Resolve(p.Command)
+		}
 
 		var badge, label string
+		var prio int
 		if tracked {
-			badge, _ = badgeAndPrio(e)
+			badge, prio = badgeAndPrio(e)
 			label = e.Label
-		} else if sentName != "generic" {
-			badge = "🤖 💤 Idle    "
-			label = "idle in " + filepath.Base(p.Path)
 		}
 		if badge == "" {
-			continue
+			if sentName != "generic" {
+				badge = "🤖 💤 Idle    "
+				prio = 6
+				label = "idle in " + filepath.Base(p.Path)
+			} else {
+				badge = "💻 Pane       "
+				prio = 7
+				label = p.Path
+			}
 		}
-		count++
+
 		ctx := truncate(fmt.Sprintf("[%s:%d.%d] %s", p.Session, p.Window, p.Pane, p.Command), 16)
 		repo := truncate(filepath.Base(p.Path), 24)
 		displayLabel := truncate(label, 32)
-		fmt.Fprintf(&sb, "%s│ %-16s │ %-24s │ %s\t%s\n", badge, ctx, repo, displayLabel, p.ID)
+		display := fmt.Sprintf("%s│ %-16s │ %-24s │ %s\t%s", badge, ctx, repo, displayLabel, p.ID)
+		rows = append(rows, row{prio: prio, display: display})
 	}
-	if count == 0 {
-		return emptyRow("🤖 Empty      ", "No active agent sessions found on tmux server")
+
+	sort.SliceStable(rows, func(i, j int) bool { return rows[i].prio < rows[j].prio })
+	var sb strings.Builder
+	for _, r := range rows {
+		sb.WriteString(r.display)
+		sb.WriteByte('\n')
 	}
 	return sb.String()
 }

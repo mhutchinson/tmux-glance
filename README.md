@@ -61,7 +61,7 @@ If the status bar is quiet, you stay focused on your active code. Badges follow 
 - `🤖 ⚡ 2` — Background agents actively running.
 - `🤖 ✓ 1` — An agent completed its task or updated its output.
 
-With one keystroke (`prefix b`), open the **Attention Hub** popup to see only the tasks that need you, inspect their output with live ANSI preview, and press `Enter` to jump straight to the pane.
+With one keystroke (`prefix b`), open the **Bots & Views** popup to see agent tasks and vigils (with urgent alerts and blocked prompts prioritized to the top), inspect their output with live ANSI preview, and press `Enter` to jump straight to the pane.
 
 ---
 
@@ -71,12 +71,13 @@ With one keystroke (`prefix b`), open the **Attention Hub** popup to see only th
 
 | Key | Action | Description |
 | :--- | :--- | :--- |
-| `prefix b` | **Attention Hub** | Floating viewfinder filtered strictly to tasks that need you (`🚨 Alert`, `🤖 ⏳ Waiting`). |
-| `prefix g` | **All Panes (Go-To)** | Fuzzy search across all panes in every session and window. Type any directory, repo, or command to preview and jump straight there. |
+| `prefix g` | **Global Panes (Go-To)** | Server-wide teleporter across 100% of panes in every session and window. Active tasks sort to top; preview live output and jump straight there. |
+| `prefix b` | **Bots & Views** | Sentinels & watches filtered to agent tasks and manual vigils, sorted strictly by priority (`🚨`, `🤖 ⏳`, `🤖 ✓`, `🤖 ⚡`, `👁️`, `🤖 💤`). |
 | `prefix v` | **Toggle Vigil** | Slap a watchful sentinel on the current pane (or release it). |
 
 > **Inside the Viewfinder Popup:**
-> * `Ctrl-b` — Toggle instantly between the Attention Hub and All Panes (Go-To).
+> * `Ctrl-g` — Switch directly to Global Panes (All Panes).
+> * `Ctrl-b` — Toggle between Bots & Views and Global Panes.
 > * `Ctrl-s` — Switch to the Sessionizer to search and jump between active tmux sessions with ambient status badges.
 > * `Ctrl-h` — Switch to Jump History timeline (`FWD` / `CUR` / `BACK`) with live previews.
 > * `Ctrl-x` — Clear the jump history stack (useful for context switches or privacy).
@@ -197,8 +198,8 @@ set -g status-right '#(tmux-glance status) %H:%M '
    _(Outputs nothing if all background panes are quiet, or formatted badges if agents are active)._
 
 2. **Test Keybindings:**
-   - Press `prefix + g`: The **All Panes (Go-To)** popup should appear.
-   - Press `prefix + b`: The **Attention Hub** popup should appear.
+   - Press `prefix + g`: The **Global Panes (Go-To)** popup should appear.
+   - Press `prefix + b`: The **Bots & Views** popup should appear.
    - Press `prefix + v`: You should see a status message: `👁️ Vigil active: ...` (press again to release).
 
 ---
@@ -258,8 +259,8 @@ programs.tmux-glance = {
 
   # Custom keybindings (defaults: g, b, v; Tier 2: Tab)
   keybindings = {
-    glance = "g";  # prefix + g: All Panes (Go-To Teleport)
-    hub = "b";     # prefix + b: Attention Hub
+    glance = "g";  # prefix + g: Global Panes (Go-To Teleport)
+    hub = "b";     # prefix + b: Bots & Views
     vigil = "v";   # prefix + v: Toggle Vigil on current pane
     history = "Tab"; # prefix + Tab: Jump History Timeline (Tier 2)
   };

@@ -116,7 +116,8 @@ cheat_sheet() {
   │                   tmux-glance Viewfinder                    │
   ├─────────────────────────────────────────────────────────────┤
   │ View Controls:                                              │
-  │   Ctrl-b       Toggle Attention Hub <-> All Panes (Go-To)   │
+  │   Ctrl-g       Switch to Global Panes (All Panes)           │
+  │   Ctrl-b       Toggle Bots & Views <-> Global Panes         │
   │   Ctrl-s       Toggle Sessionizer (Workspaces)              │
   │   Ctrl-h       Toggle Jump History Timeline (FWD/CUR/BACK)  │
   │                                                             │
@@ -146,12 +147,13 @@ list_bookmarks() {
         source_pane=$(tmux display-message -p '#{pane_id}' 2>/dev/null || true)
     fi
 
-    local initial_mode="attention"
+    local initial_mode="bots"
     case "$req_mode" in
-        all)      initial_mode="all" ;;
-        sessions) initial_mode="sessions" ;;
-        history)  initial_mode="history" ;;
-        attention) initial_mode="attention" ;;
+        all|global) initial_mode="all" ;;
+        sessions)   initial_mode="sessions" ;;
+        history)    initial_mode="history" ;;
+        bots)       initial_mode="bots" ;;
+        attention)  initial_mode="attention" ;;
         auto)
             # Default to all-panes if state file is empty (nothing tracked yet).
             if ! "$ENGINE" list-raw current 2>/dev/null | grep -q '[^[:space:]]'; then
@@ -180,11 +182,12 @@ list_bookmarks() {
         --delimiter=$'\t' \
         --with-nth=1 \
         --ansi \
-        --header="👁️ tmux-glance (Ctrl-s: Sessions | Ctrl-b: View | Ctrl-h: History | Ctrl-p: Pin | Ctrl-x: Clear | Ctrl-/: Help | Enter: Jump)" \
+        --header="👁️ tmux-glance (Ctrl-g: Global | Ctrl-b: Bots | Ctrl-s: Sessions | Ctrl-h: History | Ctrl-p: Pin | Ctrl-x: Clear | Ctrl-/: Help | Enter: Jump)" \
         --layout=reverse \
         --border=rounded \
         --info=inline \
         --bind "ctrl-b:reload($ENGINE list-raw toggle)+wait+pos(1)" \
+        --bind "ctrl-g:reload($ENGINE list-raw all)+wait+pos(1)" \
         --bind "ctrl-s:reload($ENGINE list-raw toggle-sessions)+wait+pos(1)" \
         --bind "ctrl-h:transform($ENGINE eval-history-action)" \
         --bind "ctrl-x:execute($ENGINE clear-history)+reload($ENGINE list-raw current)+wait+pos(1)" \
@@ -257,11 +260,15 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
         # fzf popup launchers (bash + engine for data)
         list)
             shift || true
-            list_bookmarks "${1:-auto}" "${2:-}"
+            list_bookmarks "${1:-bots}" "${2:-}"
             ;;
-        list-all)
+        list-all|list-global)
             shift || true
             list_bookmarks "all" "${1:-}"
+            ;;
+        list-bots)
+            shift || true
+            list_bookmarks "bots" "${1:-}"
             ;;
         list-sessions|sessions)
             shift || true

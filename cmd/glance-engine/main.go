@@ -410,7 +410,7 @@ func removeVigil(ctx context.Context, store *state.FileStore, tc *tmux.Client, p
 func listRaw(ctx context.Context, store *state.FileStore, reg *sentinel.Registry, slotStore *slots.Store, tc *tmux.Client, stack *jumplist.Stack, mode string) error {
 	curMode, _ := tc.GetGlobalOption(ctx, "@glance_mode")
 	if curMode == "" {
-		curMode = "attention"
+		curMode = "bots"
 	}
 
 	targetMode := resolveMode(curMode, mode, tc, ctx)
@@ -419,14 +419,10 @@ func listRaw(ctx context.Context, store *state.FileStore, reg *sentinel.Registry
 	entries, _ := store.ReadAll()
 
 	switch targetMode {
-	case "all":
+	case "all", "global":
 		panes, _ := tc.ListAllPanes(ctx)
-		// Build a simple resolver that doesn't need context (formatter interface).
-		resolverFn := func(cmd string) string { return reg.Resolve(ctx, cmd) }
-		type adapterT struct{ fn func(string) string }
-		type formatterResolver interface{ Resolve(cmd string) string }
-		var adapted formatterResolver = funcResolver{resolverFn}
-		fmt.Print(formatter.AllPanesList(entries, panes, adapted))
+		resolver := funcResolver{fn: func(cmd string) string { return reg.Resolve(ctx, cmd) }}
+		fmt.Print(formatter.AllPanesList(entries, panes, resolver))
 
 	case "sessions":
 		sessions, _ := tc.ListSessions(ctx)
@@ -447,8 +443,10 @@ func listRaw(ctx context.Context, store *state.FileStore, reg *sentinel.Registry
 		}
 		fmt.Print(formatter.HistoryList(fwd, back, cur, paneInfoFn))
 
-	default: // "attention"
-		fmt.Print(formatter.AttentionList(entries))
+	default: // "bots", "attention"
+		panes, _ := tc.ListAllPanes(ctx)
+		resolver := funcResolver{fn: func(cmd string) string { return reg.Resolve(ctx, cmd) }}
+		fmt.Print(formatter.BotsList(entries, panes, resolver))
 	}
 	return nil
 }
@@ -464,15 +462,28 @@ func resolveMode(curMode, req string, tc *tmux.Client, ctx context.Context) stri
 	case "current":
 		return curMode
 	case "toggle":
-		if curMode == "attention" {
+		if curMode == "bots" || curMode == "attention" {
 			return "all"
 		}
+		if curMode == "all" {
+			prev, _ := tc.GetGlobalOption(ctx, "@glance_prev_mode")
+			if prev == "attention" {
+				return "attention"
+			}
+			return "bots"
+		}
+		return "bots"
+	case "bots":
+		return "bots"
+	case "attention":
 		return "attention"
+	case "all", "global":
+		return "all"
 	case "toggle-sessions", "sessions-toggle":
 		if curMode == "sessions" {
 			prev, _ := tc.GetGlobalOption(ctx, "@glance_prev_mode")
 			if prev == "" || prev == "sessions" {
-				prev = "attention"
+				prev = "bots"
 			}
 			return prev
 		}
@@ -482,7 +493,7 @@ func resolveMode(curMode, req string, tc *tmux.Client, ctx context.Context) stri
 		if curMode == "history" {
 			prev, _ := tc.GetGlobalOption(ctx, "@glance_prev_mode")
 			if prev == "" || prev == "history" {
-				prev = "attention"
+				prev = "bots"
 			}
 			return prev
 		}

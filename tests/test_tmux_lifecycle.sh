@@ -447,6 +447,32 @@ else
     exit 1
 fi
 
+# 22b. Global Panes View Validation
+echo -n "Test 21b: Global view lists all panes including generic panes with 💻 Pane... "
+tmux -S "$SOCK" new-window -t test-sess -n win_gen "bash"
+rm -f "$STATUS_FILE"
+tmux -S "$SOCK" run-shell "bash '$BIN' list-raw all > '$STATUS_FILE'"
+global_out=$(cat "$STATUS_FILE")
+if [[ "$global_out" =~ "💻 Pane" ]]; then
+    echo "PASS"
+else
+    echo "FAIL: Expected '💻 Pane' in global panes list, got: $global_out"
+    exit 1
+fi
+
+# 22c. Bots View Validation
+echo -n "Test 21c: Bots view filters out untracked generic panes... "
+rm -f "$STATUS_FILE"
+tmux -S "$SOCK" run-shell "bash '$BIN' list-raw bots > '$STATUS_FILE'"
+bots_out=$(cat "$STATUS_FILE")
+tmux -S "$SOCK" kill-window -t test-sess:win_gen 2>/dev/null || true
+if [[ "$bots_out" =~ "💻 Pane" ]]; then
+    echo "FAIL: Bots view should NOT contain generic '💻 Pane' entries, got: $bots_out"
+    exit 1
+else
+    echo "PASS"
+fi
+
 # 23. Quickfix Attention Cycling (next-attention, prev-attention, and jump-back)
 echo -n "Test 22: Quickfix attention queue cycling (next/prev) and jumplist rewind... "
 # Clear lingering state from earlier tests to provide an isolated queue environment

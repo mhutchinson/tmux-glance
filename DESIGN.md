@@ -10,7 +10,7 @@
 
 As terminal workflows transition from synchronous shell commands to autonomous, long-running processes—such as background AI coding agents (Antigravity, Claude Code, Aider), compilation pipelines (`cargo build`, `nix build`), remote database syncs, and test suites—developers suffer from chronic **speculative window hopping**: cycling through tmux windows and panes simply to inspect whether a process has completed, failed, or blocked waiting for user input.
 
-`tmux-glance` eliminates speculative hopping by establishing an **ambient status-right telemetry protocol**, an on-demand **Attention Hub** (`prefix b`), a server-wide **All Panes Go-To teleporter** (`prefix g`), and instant single-pane **Vigil watches** (`prefix v`).
+`tmux-glance` eliminates speculative hopping by establishing an **ambient status-right telemetry protocol**, an on-demand **Bots & Views** viewfinder (`prefix b`), a server-wide **Global Panes Go-To teleporter** (`prefix g`), and instant single-pane **Vigil watches** (`prefix v`).
 
 ---
 
@@ -88,8 +88,8 @@ flowchart TD
 
     subgraph Presentation
         Status["Tmux status-right\n'🚨 1  👁️ 1  🤖 ⏳ 1'"]
-        Hub["Attention Hub (prefix b)\nUrgent tasks sorted by priority"]
-        Fleet["All Panes (prefix g)\nCross-session pane teleporter"]
+        Hub["Bots & Views (prefix b)\nAgent tasks & vigils sorted by severity"]
+        Fleet["Global Panes (prefix g)\n100% of panes teleporter"]
         Sessions["Sessionizer (prefix s)\nWorkspace switcher + slot badges"]
         Preview["fzf ANSI Live Preview\n(tmux capture-pane)"]
     end
@@ -213,12 +213,15 @@ Only binds dedicated, non-disruptive keys. Preserves all standard tmux navigatio
 
 | Keybinding | Scope | Purpose |
 | :--- | :--- | :--- |
-| `prefix g` | Global | **All Panes (Go-To):** Search across all panes in every session and window to preview and jump straight there. |
-| `prefix b` | Global | **Attention Hub:** Urgent queue (waiting prompts, completed runs, alerts). |
+| `prefix g` | Global | **Global Panes (Go-To):** Search across 100% of panes in every session and window to preview and jump straight there. Active tasks sort to top. |
+| `prefix b` | Global | **Bots & Views:** Agent tasks and vigils sorted strictly by severity (`🚨` > `🤖 ⏳` > `🤖 ✓` > `🤖 ⚡` > `👁️` > `🤖 💤`). |
 | `prefix v` | Global | **Vigil Toggle:** Instantly watch/unwatch current pane for output. |
-| `Ctrl-b` | *Popup only* | **Toggle View:** Flip between Attention Hub and All Panes inside fzf. |
+| `Ctrl-g` | *Popup only* | **Global Panes:** Switch directly to Global (All Panes) view. |
+| `Ctrl-b` | *Popup only* | **Toggle View:** Flip between Bots & Views and Global Panes inside fzf. |
 | `Ctrl-s` | *Popup only* | **Sessionizer:** Flip to active tmux sessions with ambient status badges. |
 | `Ctrl-p` | *Popup only (Sessionizer)* | **Pin Slot:** Assign or clear Harpoon session slot (`h/j/k/l`). |
+| `Ctrl-h` | *Popup only* | **History:** Flip to Jump History timeline (`FWD` / `CUR` / `BACK`). |
+| `Ctrl-x` | *Popup only* | **Clear History:** Wipe the jump history stack cleanly. |
 | `Ctrl-/` / `F1` | *Popup only* | **Cheat Sheet:** Display modal-only navigation shortcuts overlay. |
 | `Enter` | *Popup only* | **Jump:** Instantly switch client, window, and pane to target. |
 
