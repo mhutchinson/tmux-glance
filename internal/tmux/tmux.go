@@ -229,12 +229,27 @@ func (c *Client) DisplayMessage(ctx context.Context, msg string) error {
 	return err
 }
 
-// SelectPane switches focus to a pane (select-pane + select-window + switch-client).
+// SelectPane switches focus to a pane.
+// It avoids calling switch-client when staying in the same session, because
+// switch-client resets tmux's client keytable to root and destroys active repeat timers.
 func (c *Client) SelectPane(ctx context.Context, paneID string) error {
+	curSession, _ := c.run(ctx, true, "display-message", "-p", "#{session_name}")
+	targetSession, _ := c.GetPaneField(ctx, paneID, "#{session_name}")
+
 	c.run(ctx, true, "select-pane", "-t", paneID)   //nolint:errcheck
 	c.run(ctx, true, "select-window", "-t", paneID) //nolint:errcheck
-	_, err := c.run(ctx, true, "switch-client", "-t", paneID)
-	return err
+
+	if curSession != "" && targetSession != "" && curSession == targetSession {
+		return nil
+	}
+
+	if _, err := c.run(ctx, true, "switch-client", "-t", paneID); err != nil {
+		return err
+	}
+	// Re-arm prefix table on the switched client so repeatable keys (<, >, [, ])
+	// can continue traversing across sessions within repeat-time.
+	c.run(ctx, true, "switch-client", "-T", "prefix") //nolint:errcheck
+	return nil
 }
 
 // SwitchClient switches the tmux client to a target session or pane.

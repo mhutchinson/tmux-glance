@@ -167,3 +167,93 @@ func TestSplitLines(t *testing.T) {
 		}
 	}
 }
+
+type recordingExec struct {
+	calls     [][]string
+	responses map[string]string
+}
+
+func (r *recordingExec) Run(_ context.Context, args ...string) (string, error) {
+	r.calls = append(r.calls, args)
+	key := strings.Join(args, " ")
+	if out, ok := r.responses[key]; ok {
+		return out, nil
+	}
+	return "", nil
+}
+
+func TestSelectPane_SameSession(t *testing.T) {
+	t.Parallel()
+	exec := &recordingExec{
+		responses: map[string]string{
+			"display-message -p #{session_name}":         "main",
+			"display-message -p -t %2 #{session_name}": "main",
+		},
+	}
+	c := New(exec)
+	if err := c.SelectPane(context.Background(), "%2"); err != nil {
+		t.Fatalf("SelectPane: %v", err)
+	}
+
+	// Verify select-pane and select-window were called, but NOT switch-client.
+	hasSelectPane := false
+	hasSelectWindow := false
+	hasSwitchClient := false
+	for _, call := range exec.calls {
+		if len(call) >= 1 {
+			switch call[0] {
+			case "select-pane":
+				hasSelectPane = true
+			case "select-window":
+				hasSelectWindow = true
+			case "switch-client":
+				hasSwitchClient = true
+			}
+		}
+	}
+
+	if !hasSelectPane {
+		t.Errorf("expected select-pane call")
+	}
+	if !hasSelectWindow {
+		t.Errorf("expected select-window call")
+	}
+	if hasSwitchClient {
+		t.Errorf("expected NO switch-client call for same-session jump, got calls: %+v", exec.calls)
+	}
+}
+
+func TestSelectPane_CrossSession(t *testing.T) {
+	t.Parallel()
+	exec := &recordingExec{
+		responses: map[string]string{
+			"display-message -p #{session_name}":         "main",
+			"display-message -p -t %5 #{session_name}": "work",
+		},
+	}
+	c := New(exec)
+	if err := c.SelectPane(context.Background(), "%5"); err != nil {
+		t.Fatalf("SelectPane: %v", err)
+	}
+
+	// Verify switch-client -t %5 AND switch-client -T prefix were called.
+	hasSwitchTarget := false
+	hasRearmPrefix := false
+	for _, call := range exec.calls {
+		cmdStr := strings.Join(call, " ")
+		if cmdStr == "switch-client -t %5" {
+			hasSwitchTarget = true
+		}
+		if cmdStr == "switch-client -T prefix" {
+			hasRearmPrefix = true
+		}
+	}
+
+	if !hasSwitchTarget {
+		t.Errorf("expected switch-client -t %%5 for cross-session jump")
+	}
+	if !hasRearmPrefix {
+		t.Errorf("expected switch-client -T prefix to re-arm repeatable keys")
+	}
+}
+
