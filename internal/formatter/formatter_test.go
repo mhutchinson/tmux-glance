@@ -239,3 +239,22 @@ func nonEmptyLines(s string) []string {
 	}
 	return out
 }
+
+func TestTruncate_RuneWidth(t *testing.T) {
+	t.Parallel()
+	// Each emoji is 1 rune but 3-4 bytes. Byte-based truncation would
+	// cut mid-codepoint and produce a garbled or too-short result.
+	s := "🚨 waiting for confirmation in repo"
+	got := truncate(s, 20)
+	runes := []rune(got)
+	if len(runes) > 20 {
+		t.Errorf("truncate produced %d runes, want ≤ 20: %q", len(runes), got)
+	}
+	if !strings.HasSuffix(got, "...") {
+		t.Errorf("truncate should end with '...', got %q", got)
+	}
+	// Verify the result is valid UTF-8 (byte slicing would break this).
+	if got != string([]rune(got)) {
+		t.Errorf("truncate result is not valid UTF-8: %q", got)
+	}
+}

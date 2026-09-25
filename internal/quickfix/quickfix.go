@@ -107,15 +107,24 @@ func Cycle(ctx context.Context, dir string, store *state.FileStore, stack *jumpl
 		return nil
 	}
 
+	isPrev := dir == "prev" || dir == "backward" || dir == "cprev"
 	var idx int
-	if dir == "prev" || dir == "backward" || dir == "cprev" {
+	if isPrev {
 		idx = PrevIndex(queue, curPaneID)
 	} else {
 		idx = NextIndex(queue, curPaneID)
 	}
 
-	for attempts := 0; attempts < len(queue); attempts++ {
+	// Iterate at most as many times as the original queue length. On each
+	// dead-pane hit we remove the entry from both the store and the local
+	// slice so subsequent idx arithmetic stays correct.
+	for range queue {
+		if len(queue) == 0 {
+			break
+		}
+		idx = idx % len(queue)
 		target := queue[idx]
+
 		if target.PaneID == curPaneID && len(queue) == 1 {
 			tc.DisplayMessage(ctx, fmt.Sprintf("Glance [1/1]: already on %s (%s)", target.Session, target.State)) //nolint:errcheck
 			return nil
@@ -138,13 +147,23 @@ func Cycle(ctx context.Context, dir string, store *state.FileStore, stack *jumpl
 			return nil
 		}
 
-		// Prune dead pane if select fails and advance index
+		// Dead pane: prune from store and remove from local queue so that
+		// subsequent iterations use the correct slice length.
 		store.RemoveEntry(target.PaneID) //nolint:errcheck
-		if dir == "prev" || dir == "backward" || dir == "cprev" {
-			idx = (idx - 1 + len(queue)) % len(queue)
-		} else {
-			idx = (idx + 1) % len(queue)
+		queue = append(queue[:idx], queue[idx+1:]...)
+		if len(queue) == 0 {
+			break
 		}
+		if isPrev {
+			// Step back: the removed entry was at idx so the previous item
+			// is now at idx-1 (wrapping to end if idx was 0).
+			if idx > 0 {
+				idx--
+			} else {
+				idx = len(queue) - 1
+			}
+		}
+		// For "next": do not advance — the former idx+1 has shifted into idx.
 	}
 
 	tc.DisplayMessage(ctx, "Glance: no reachable attention items") //nolint:errcheck

@@ -78,3 +78,41 @@ func TestNextPrevIndex(t *testing.T) {
 		t.Errorf("PrevIndex(%%10) = %d, want 2", got)
 	}
 }
+
+// TestDeadPaneRemoval simulates the slice-mutation logic in Cycle directly:
+// verifies that removing dead panes from the local queue slice doesn't corrupt
+// index arithmetic for subsequent iterations.
+func TestDeadPaneRemoval_IndexStability(t *testing.T) {
+	t.Parallel()
+
+	// Simulate a queue where the first two entries are dead (select would fail).
+	// After removing them, we expect to land on the third entry.
+	queue := []state.Entry{
+		{PaneID: "%dead1", Session: "s", State: state.StateAlert},
+		{PaneID: "%dead2", Session: "s", State: state.StateAlert},
+		{PaneID: "%alive", Session: "s", State: state.StateAlert},
+	}
+
+	// Replicate the pruning loop from Cycle (next direction, starting at idx=0).
+	idx := 0
+	var landed string
+	for range queue {
+		if len(queue) == 0 {
+			break
+		}
+		idx = idx % len(queue)
+		target := queue[idx]
+
+		if target.PaneID == "%alive" {
+			landed = target.PaneID
+			break
+		}
+
+		// Simulate dead-pane removal (next direction: don't advance idx).
+		queue = append(queue[:idx], queue[idx+1:]...)
+	}
+
+	if landed != "%alive" {
+		t.Errorf("expected to land on %%alive after pruning dead panes, got %q (queue len=%d)", landed, len(queue))
+	}
+}

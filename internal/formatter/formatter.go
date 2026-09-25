@@ -17,12 +17,15 @@ import (
 	"github.com/mhutchinson/tmux-glance/internal/tmux"
 )
 
-// truncate returns s truncated to maxLen, with "..." if over.
+// truncate returns s truncated to maxLen runes, with "..." if over.
+// Uses rune count (not byte length) so multi-byte characters (emojis, CJK)
+// are measured correctly.
 func truncate(s string, maxLen int) string {
-	if len(s) <= maxLen {
+	r := []rune(s)
+	if len(r) <= maxLen {
 		return s
 	}
-	return s[:maxLen-3] + "..."
+	return string(r[:maxLen-3]) + "..."
 }
 
 // BotsList renders the Bots & Views view: all active agent alerts,
