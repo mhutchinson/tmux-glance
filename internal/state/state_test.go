@@ -236,3 +236,40 @@ func TestLock_ConcurrentAcquire(t *testing.T) {
 		t.Errorf("increments = %d, want %d", increments, goroutines)
 	}
 }
+
+// TestWrite_ConcurrentCallsNoCollision verifies that concurrent Write calls
+// from the same process don't clobber each other's temp files. With the old
+// PID-based naming scheme (state.tmp.<pid>), two goroutines in the same process
+// would use the identical temp path and could corrupt each other's writes.
+// os.CreateTemp uses a random suffix, eliminating this collision.
+func TestWrite_ConcurrentCallsNoCollision(t *testing.T) {
+	t.Parallel()
+	s := tmpStore(t)
+
+	const goroutines = 20
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+	for i := range goroutines {
+		i := i
+		go func() {
+			defer wg.Done()
+			e := Entry{
+				PaneID: "%1", Session: "s", Window: 0, Pane: i,
+				Path: "/a", Command: "zsh", Label: "l",
+				Kind: KindManual, State: StateWatching,
+			}
+			s.Write([]Entry{e}) //nolint:errcheck
+		}()
+	}
+	wg.Wait()
+
+	// After all goroutines finish, the file should be parseable (not corrupted).
+	entries, err := s.ReadAll()
+	if err != nil {
+		t.Fatalf("ReadAll after concurrent writes: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Errorf("expected 1 entry after concurrent writes, got %d", len(entries))
+	}
+}
+

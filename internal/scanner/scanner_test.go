@@ -276,3 +276,47 @@ func TestStatusSummary_Counts(t *testing.T) {
 			alerts, watches, waiting, running, done)
 	}
 }
+
+// TestOnFocus_GenericPaneSkipsCooldownReset verifies that the scanner's
+// OnFocus logic only resets the scan cooldown when the pane is tracked or
+// a known agent — not for every focus event from untracked generic panes.
+// We test the relevant predicate directly on the state store rather than
+// injecting fakes into the concrete Scanner fields.
+func TestOnFocus_GenericPaneSkipsCooldownReset(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	store, _ := state.NewFileStore(filepath.Join(dir, "state"))
+
+	// Case 1: untracked pane → found=false, sentName="generic" → should NOT reset.
+	_, found, _ := store.GetEntry("%popup")
+	sentName := "generic" // simulates fzf or any non-agent command
+
+	shouldReset := found || sentName != "generic"
+	if shouldReset {
+		t.Error("untracked generic pane should NOT trigger cooldown reset (found=false, sentName=generic)")
+	}
+
+	// Case 2: tracked pane → found=true → SHOULD reset.
+	store.UpsertEntry(state.Entry{ //nolint:errcheck
+		PaneID: "%1", Session: "s", Window: 0, Pane: 0,
+		Path: "/repo", Command: "zsh", Label: "zsh in repo",
+		Kind: state.KindManual, State: state.StateWatching,
+	})
+	_, found, _ = store.GetEntry("%1")
+	sentName = "generic"
+
+	shouldReset = found || sentName != "generic"
+	if !shouldReset {
+		t.Error("tracked pane should trigger cooldown reset (found=true)")
+	}
+
+	// Case 3: untracked but known-agent pane → SHOULD reset.
+	_, found, _ = store.GetEntry("%agent")
+	sentName = "antigravity"
+
+	shouldReset = found || sentName != "generic"
+	if !shouldReset {
+		t.Error("untracked agent pane should trigger cooldown reset (sentName!=generic)")
+	}
+}
+

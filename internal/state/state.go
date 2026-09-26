@@ -143,14 +143,27 @@ func (s *FileStore) Write(entries []Entry) error {
 
 // write is the unlocked internal writer.
 func (s *FileStore) write(entries []Entry) error {
-	tmp := fmt.Sprintf("%s.tmp.%d", s.path, os.Getpid())
 	var sb strings.Builder
 	for _, e := range entries {
 		sb.WriteString(e.format())
 		sb.WriteByte('\n')
 	}
-	if err := os.WriteFile(tmp, []byte(sb.String()), 0o644); err != nil {
+	// Use os.CreateTemp for a unique random suffix rather than a PID-based
+	// name, eliminating the theoretical collision if the same process issues
+	// two concurrent writes (e.g. under test with -race).
+	f, err := os.CreateTemp(filepath.Dir(s.path), filepath.Base(s.path)+".tmp.*")
+	if err != nil {
+		return fmt.Errorf("creating state tmp: %w", err)
+	}
+	tmp := f.Name()
+	if _, err := f.WriteString(sb.String()); err != nil {
+		f.Close()
+		os.Remove(tmp) //nolint:errcheck
 		return fmt.Errorf("writing state tmp: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		os.Remove(tmp) //nolint:errcheck
+		return fmt.Errorf("closing state tmp: %w", err)
 	}
 	if err := os.Rename(tmp, s.path); err != nil {
 		os.Remove(tmp) //nolint:errcheck

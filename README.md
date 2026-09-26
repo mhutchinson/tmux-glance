@@ -443,7 +443,6 @@ just gh-issues
 
 ### Upcoming Roadmap
 
-- [ ] **v0.9: Global Agent Quotas & Saturation Gauges** — Sentinel capacity/quota hook (`sentinel_<name>_gauge`). Kept quiet in `status-right` until capacity drops below 20% (escalating to warning colors), always visible in the dashboard header, strictly backed by asynchronous local cache.
 - [ ] **v1.0: Production Hardening, Dogfooding & Polish** — End-to-end edge-case hardening across diverse terminal dimensions and nested tmux workflows, full dogfooding cycle, documentation polish, and config contract freeze.
 
 ### Potential Features
@@ -453,6 +452,7 @@ Ideas that may graduate to a versioned milestone depending on whether real-world
 - 📢 **External Notification Hooks** — A `@glance_alert_cmd` hook invoked (with state + label as arguments) whenever an alert fires or an agent becomes `🤖 ⏳ waiting`. Enables desktop notifications (`osascript`, `notify-send`), webhook pings, or any shell command — critical when you step away from the terminal entirely.
 - 🔕 **Alert Snooze / Dismiss-Without-Visit** — Acknowledge or snooze a `🚨` alert directly from the viewfinder (e.g. `Ctrl-d` in the modal, or a key in quickfix cycling) without teleporting into the pane. Useful when you’ve seen the alert but aren’t ready to context-switch yet.
 - 🕐 **Alert Age / Elapsed Time** — Show how long a pane has been in its current state inline in the viewfinder (e.g. `🤖 ⏳ 12m`). Lets you triage at a glance whether an agent has been blocked for 2 minutes or 45, without visiting it.
+- 📊 **Global Agent Quota Gauges** — Ambient capacity indicators for LLM API quotas (e.g. `🪫 18%`) in the status bar and viewfinder header, backed by an asynchronous local cache. Harder than it sounds: Antigravity exposes 4 independent quota bars (5-hour and weekly, across 2 model types) that don’t reduce cleanly to a single number.
 - 🏷️ **Pane Labels / Aliases** — Attach a human-readable name to any pane (e.g. `tmux-glance label "prod migration"`), shown in the viewfinder and status badge instead of the raw command/directory. Sharpens scannability when many panes share the same working directory or shell.
 - 🛑 **Kill / Interrupt From Viewfinder** — Send `SIGINT` (or `SIGKILL`) to a selected pane’s foreground process directly from the modal without teleporting there. A natural escape hatch when an agent or build is clearly stuck in a loop.
 - 📋 **Per-Pane Scratch Notes** — Attach a short freeform note to any vigil watch (e.g. `"running prod DB migration — don’t kill"`), displayed alongside the live preview in the viewfinder.

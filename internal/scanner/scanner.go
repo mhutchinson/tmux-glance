@@ -202,8 +202,13 @@ func (sc *Scanner) OnFocus(ctx context.Context, paneID string) error {
 		sc.tmux.SetPaneOption(ctx, paneID, "@glance_agent_snapshot", hash) //nolint:errcheck
 	}
 
-	// Invalidate scan cooldown so next status poll sees fresh state.
-	sc.tmux.SetGlobalOption(ctx, "@glance_last_scan_time", "0") //nolint:errcheck
+	// Invalidate scan cooldown so the next status poll sees fresh state.
+	// Skip for untracked generic panes (e.g. the glance popup pane running fzf):
+	// those focus events carry no meaningful state change and resetting the
+	// cooldown would force a spurious full rescan on every popup open/close.
+	if found || sentName != "generic" {
+		sc.tmux.SetGlobalOption(ctx, "@glance_last_scan_time", "0") //nolint:errcheck
+	}
 	return nil
 }
 
