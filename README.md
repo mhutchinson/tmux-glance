@@ -274,10 +274,10 @@ programs.tmux-glance = {
   # Enable Tier 2 Harpoon fast-jump chords (prefix C-h, C-j, C-k, C-l):
   enableHarpoon = true;
 
-  # Enable Tier 2 Jumplist backtrack chords & history modal (prefix Tab, C-z, C-y, repeatable prefix -r <, >, u, U):
+  # Enable Tier 2 Jumplist backtrack chords & history modal (prefix Tab, repeatable prefix -r <, >):
   enableJumplist = true;
 
-  # Enable Tier 2 Quickfix attention queue cycling (repeatable prefix -r ], [):
+  # Enable Tier 2 Quickfix attention queue cycling (repeatable prefix -r }, {):
   enableQuickfix = true;
 
   # Cooldown threshold in seconds to debounce background scans when focus is unchanged (default: 3)
@@ -300,10 +300,10 @@ set -g @glance_popup_height '75%'
 # Enable Tier 2 Harpoon fast-jump chords (prefix C-h, C-j, C-k, C-l):
 set -g @glance_enable_harpoon 'on'
 
-# Enable Tier 2 Jumplist backtrack chords & history modal (prefix Tab, C-z, C-y, -r <, -r >, -r u, -r U):
+# Enable Tier 2 Jumplist backtrack chords & history modal (prefix Tab, repeatable -r <, -r >):
 set -g @glance_enable_jumplist 'on'
 
-# Enable Tier 2 Quickfix attention queue cycling (repeatable prefix -r ], -r [):
+# Enable Tier 2 Quickfix attention queue cycling (repeatable prefix -r }, -r {):
 set -g @glance_enable_quickfix 'on'
 
 # Optional: customize history viewfinder key (default: Tab)
@@ -327,20 +327,17 @@ Pin your top 4 projects to instant 1-chord shortcuts:
 ### 3. Jump History & Jumplist Backtracking
 Traverse seamlessly back and forth between recent panes across all sessions without losing context:
 * **In-Modal History Timeline (`Ctrl-h`):** From inside the Glance popup, press `Ctrl-h` to open the unified jump timeline. Panes are ordered vertically through time: forward/redo destinations (`⏭️ FWD`) sit above the current active pane (`📍 CUR`), which sits above past undo destinations (`⏮️ BACK`). By default, the immediate undo target (`BACK #1`) is highlighted so pressing `Enter` instantly jumps back. Pressing `Up` moves to `CUR` (where `Enter` is a safe no-op), and pressing `Up` again walks into future redo jumps (`FWD #1`). Press `Ctrl-x` inside the modal (or run `tmux-glance clear-history` via CLI) to wipe the jump history stack cleanly when switching contexts.
-* **Instant Keyboard Undo/Redo & Viewfinder (Tier 2 Opt-in):** Enable `enableJumplist = true;` (`@glance_enable_jumplist 'on'`) to get direct chord navigation:
+* **Instant Keyboard Backtracking & Viewfinder (Tier 2 Opt-in):** Enable `enableJumplist = true;` (`@glance_enable_jumplist 'on'`) to get direct chord navigation:
   * `prefix Tab` — Instant Jump History timeline viewfinder (configurable via `@glance_history_key`).
-  * `prefix C-z` — Instant single-chord jump back (undo last jump; safely replaces tmux's default `suspend-client`).
-  * `prefix C-y` — Instant single-chord jump forward (redo).
   * `prefix -r <` / `prefix -r >` — Repeatable history traversal (tap `prefix < <` or `prefix > >` to flip back and forth between panes with 2 keystrokes).
-  * `prefix -r u` / `prefix -r U` — Repeatable backward and forward walk.
 
 ---
 
 ### 4. Quickfix Attention Queue Cycling (Tier 2 Opt-in)
 Cycle through active attention items (`🚨 Alert`, `🤖 ⏳ Waiting`, `🤖 ✓ Finished`) just like Vim quickfix (`:cnext` / `:cprev`):
 * Enable `enableQuickfix = true;` in Home Manager or `set -g @glance_enable_quickfix 'on'` in `~/.tmux.conf`.
-* `prefix -r ]` — Jump to next attention item (repeatable: tap `prefix ] ] ]` to triage successive items).
-* `prefix -r [` — Jump to previous attention item (repeatable).
+* `prefix -r }` — Jump to next attention item (repeatable: tap `prefix } } }` to triage successive items).
+* `prefix -r {` — Jump to previous attention item (repeatable).
 * Circular navigation wraps around the queue and displays progress: `Glance [1/3] 🚨 Alert: session (label)`.
 
 ---
@@ -439,7 +436,7 @@ just gh-issues
 - [x] **v0.5: Active Real-Time Tailing & Viewfinder Pinning** — Real-time 500ms diff-hashing preview tailing and bottom viewport locking (`:follow`) for live prompt and build tracking.
 - [x] **v0.6: In-Dashboard Sessionizer (`Ctrl-s`) & Jump History** — Search and switch tmux sessions directly within the Glance dashboard with ambient status badges. Dual Back/Forward jump stack (`Ctrl-h`, `jump-back`, `jump-forward`) with Harpoon slot assignment.
 - [x] **v0.7: Go Engine Rewrite** — Replaced the 1,816-line bash monolith with a typed Go binary (`glance-engine`) and a 140-line thin bash dispatcher (93% bash reduction). Goroutine fan-out for concurrent pane evaluation. Fixes Issues [#2](https://github.com/mhutchinson/tmux-glance/issues/2) (history frame-shift), [#3](https://github.com/mhutchinson/tmux-glance/issues/3) (sentinel `pane_id` missing), and [#5](https://github.com/mhutchinson/tmux-glance/issues/5) (stale vigil labels) structurally.
-- [x] **v0.8: Quickfix Attention Cycling & Repeatable Navigation (`prefix -r ]` / `prefix -r [`)** — Vim quickfix-style cycling directly through active attention panes (`🚨 Alert` > `🤖 ⏳ Waiting` > `🤖 ✓ Finished`) with cyclic progress status feedback. Repeatable 2-keystroke jump history flipping (`prefix -r <` / `prefix -r >`) and whiz-past dwell-time protection to prevent premature alert auto-acknowledgment.
+- [x] **v0.8: Quickfix Attention Cycling & Repeatable Navigation (`prefix -r }` / `prefix -r {`)** — Vim quickfix-style cycling directly through active attention panes (`🚨 Alert` > `🤖 ⏳ Waiting` > `🤖 ✓ Finished`) with cyclic progress status feedback. Repeatable 2-keystroke jump history flipping (`prefix -r <` / `prefix -r >`) and whiz-past dwell-time protection to prevent premature alert auto-acknowledgment.
 
 ### Upcoming Roadmap
 

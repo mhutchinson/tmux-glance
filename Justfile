@@ -42,8 +42,8 @@ live: go-build
     @tmux bind-key -r C-l run-shell "$PWD/bin/tmux-glance jump-slot l"
     @tmux bind-key -r '<' run-shell "$PWD/bin/tmux-glance jump-back"
     @tmux bind-key -r '>' run-shell "$PWD/bin/tmux-glance jump-forward"
-    @tmux bind-key -r ']' run-shell "$PWD/bin/tmux-glance next-attention"
-    @tmux bind-key -r '[' run-shell "$PWD/bin/tmux-glance prev-attention"
+    @tmux bind-key -r '}' run-shell "$PWD/bin/tmux-glance next-attention"
+    @tmux bind-key -r '{' run-shell "$PWD/bin/tmux-glance prev-attention"
     @echo "⚡ Live dev mode active: running tmux bindings now point directly to $PWD/bin/tmux-glance"
 
 
