@@ -249,26 +249,8 @@ func (s *FileStore) UpdateState(paneID string, st PaneState) error {
 	return s.write(entries)
 }
 
-// UpdateLabel changes only the Label field of an existing entry (fixes Issue #5:
-// stale vigil labels when the pane changes directory).
-func (s *FileStore) UpdateLabel(paneID, label string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	entries, err := s.readAll()
-	if err != nil {
-		return err
-	}
-	for i, e := range entries {
-		if e.PaneID == paneID {
-			entries[i].Label = label
-			break
-		}
-	}
-	return s.write(entries)
-}
-
 // UpdateEntry applies live tmux metadata (session, window, pane, path, command)
-// to an existing entry and, for auto-generated labels, refreshes the label.
+// to an existing entry and refreshes its label ("<cmd> in <dir>").
 // This is called on each scan pass to fix Issue #5.
 func (s *FileStore) UpdateEntry(paneID, session string, window, pane int, path, command string) error {
 	s.mu.Lock()
@@ -286,12 +268,7 @@ func (s *FileStore) UpdateEntry(paneID, session string, window, pane int, path, 
 		entries[i].Pane = pane
 		entries[i].Path = path
 		entries[i].Command = command
-		// Refresh auto-generated labels (pattern: "<cmd> in <dir>").
-		// Preserve user-supplied custom labels.
-		autoLabel := command + " in " + filepath.Base(e.Path)
-		if e.Label == autoLabel || e.Label == command+" in "+filepath.Base(path) || e.Label == "" {
-			entries[i].Label = command + " in " + filepath.Base(path)
-		}
+		entries[i].Label = command + " in " + filepath.Base(path)
 		break
 	}
 	return s.write(entries)

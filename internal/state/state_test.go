@@ -159,48 +159,24 @@ func TestUpdateState(t *testing.T) {
 	}
 }
 
-func TestUpdateLabel(t *testing.T) {
+func TestUpdateEntry_RefreshesLabel(t *testing.T) {
 	t.Parallel()
 	s := tmpStore(t)
 	e := Entry{PaneID: "%1", Session: "s", Window: 0, Pane: 0, Path: "/old", Command: "zsh", Label: "zsh in old", Kind: KindManual, State: StateWatching}
 	s.Write([]Entry{e}) //nolint:errcheck
-	if err := s.UpdateLabel("%1", "zsh in new"); err != nil {
-		t.Fatalf("UpdateLabel: %v", err)
-	}
-	got, _ := s.ReadAll()
-	if got[0].Label != "zsh in new" {
-		t.Errorf("want updated label, got %q", got[0].Label)
-	}
-}
-
-func TestUpdateEntry_RefreshesAutoLabel(t *testing.T) {
-	t.Parallel()
-	s := tmpStore(t)
-	e := Entry{PaneID: "%1", Session: "s", Window: 0, Pane: 0, Path: "/old", Command: "zsh", Label: "zsh in old", Kind: KindManual, State: StateWatching}
-	s.Write([]Entry{e}) //nolint:errcheck
-	// Change directory — auto label should update.
-	if err := s.UpdateEntry("%1", "s", 0, 0, "/new", "zsh"); err != nil {
+	// Change directory and command — label should update deterministically.
+	if err := s.UpdateEntry("%1", "s", 0, 0, "/new", "bash"); err != nil {
 		t.Fatalf("UpdateEntry: %v", err)
 	}
 	got, _ := s.ReadAll()
 	if got[0].Path != "/new" {
 		t.Errorf("want path /new, got %q", got[0].Path)
 	}
-	if got[0].Label != "zsh in new" {
-		t.Errorf("want label 'zsh in new' (auto-refreshed), got %q", got[0].Label)
+	if got[0].Command != "bash" {
+		t.Errorf("want command 'bash', got %q", got[0].Command)
 	}
-}
-
-func TestUpdateEntry_PreservesCustomLabel(t *testing.T) {
-	t.Parallel()
-	s := tmpStore(t)
-	// Custom label doesn't match the auto-generated pattern.
-	e := Entry{PaneID: "%1", Session: "s", Window: 0, Pane: 0, Path: "/old", Command: "zsh", Label: "My custom label", Kind: KindManual, State: StateWatching}
-	s.Write([]Entry{e}) //nolint:errcheck
-	s.UpdateEntry("%1", "s", 0, 0, "/new", "zsh") //nolint:errcheck
-	got, _ := s.ReadAll()
-	if got[0].Label != "My custom label" {
-		t.Errorf("want preserved custom label, got %q", got[0].Label)
+	if got[0].Label != "bash in new" {
+		t.Errorf("want label 'bash in new', got %q", got[0].Label)
 	}
 }
 

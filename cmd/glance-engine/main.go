@@ -136,17 +136,15 @@ func run(ctx context.Context, args []string) error {
 			paneID, _ := tmuxClient.GetPaneField(ctx, "", "#{pane_id}")
 			switch cmd {
 			case "add":
-				label := strings.Join(rest, " ")
-				return addVigil(ctx, store, tmuxClient, reg, paneID, label)
+				return addVigil(ctx, store, tmuxClient, reg, paneID)
 			case "remove":
 				return removeVigil(ctx, store, tmuxClient, paneID)
 			case "toggle-vigil":
-				label := strings.Join(rest, " ")
 				_, found, _ := store.GetEntry(paneID)
 				if found {
 					return removeVigil(ctx, store, tmuxClient, paneID)
 				}
-				return addVigil(ctx, store, tmuxClient, reg, paneID, label)
+				return addVigil(ctx, store, tmuxClient, reg, paneID)
 			}
 			return nil
 		})
@@ -347,7 +345,7 @@ func run(ctx context.Context, args []string) error {
 }
 
 // addVigil adds a manual vigil on the given pane.
-func addVigil(ctx context.Context, store *state.FileStore, tc *tmux.Client, reg *sentinel.Registry, paneID, label string) error {
+func addVigil(ctx context.Context, store *state.FileStore, tc *tmux.Client, reg *sentinel.Registry, paneID string) error {
 	info, err := tc.GetPaneField(ctx, paneID, "#{pane_id}|#{session_name}|#{window_index}|#{pane_index}|#{pane_current_path}|#{pane_current_command}")
 	if err != nil {
 		return err
@@ -360,9 +358,7 @@ func addVigil(ctx context.Context, store *state.FileStore, tc *tmux.Client, reg 
 	pane, _ := strconv.Atoi(parts[3])
 	path := parts[4]
 	command := parts[5]
-	if label == "" {
-		label = command + " in " + filepath.Base(path)
-	}
+	label := command + " in " + filepath.Base(path)
 	hash, _ := reg.Fingerprint(ctx, "generic", paneID)
 	tc.SetPaneOption(ctx, paneID, "@glance_snapshot", hash) //nolint:errcheck
 
