@@ -346,7 +346,7 @@ fi
 
 # 17. Sessionizer and Global mode switching
 echo -n "Test 16: Sessionizer and Global mode switching... "
-tmux -S "$SOCK" set-option -g @glance_mode "bots"
+tmux -S "$SOCK" set-option -g @glance_mode "hub"
 tmux -S "$SOCK" run-shell "bash '$BIN' list-raw sessions > /dev/null"
 mode_after_first=$(tmux -S "$SOCK" show-option -gv @glance_mode)
 if [[ "$mode_after_first" != "sessions" ]]; then
@@ -361,11 +361,11 @@ if [[ "$mode_after_second" != "all" ]]; then
 fi
 tmux -S "$SOCK" run-shell "bash '$BIN' list-raw toggle-global > /dev/null"
 mode_after_third=$(tmux -S "$SOCK" show-option -gv @glance_mode)
-if [[ "$mode_after_third" != "bots" ]]; then
-    echo "FAIL: Expected restored mode 'bots', got '$mode_after_third'"
+if [[ "$mode_after_third" != "hub" ]]; then
+    echo "FAIL: Expected restored mode 'hub', got '$mode_after_third'"
     exit 1
 fi
-echo "PASS (Mode transitions bots -> sessions -> all -> bots)"
+echo "PASS (Mode transitions hub -> sessions -> all -> hub)"
 
 # 18. Live preview streams active pane of target session
 echo -n "Test 17: Live preview actively streams target session active pane... "
@@ -469,14 +469,14 @@ else
     exit 1
 fi
 
-# 22c. Bots View Validation
-echo -n "Test 21c: Bots view filters out untracked generic panes... "
+# 22c. Attention Hub Validation
+echo -n "Test 21c: Attention Hub filters out untracked generic panes... "
 rm -f "$STATUS_FILE"
-tmux -S "$SOCK" run-shell "bash '$BIN' list-raw bots > '$STATUS_FILE'"
+tmux -S "$SOCK" run-shell "bash '$BIN' list-raw hub > '$STATUS_FILE'"
 bots_out=$(cat "$STATUS_FILE")
 tmux -S "$SOCK" kill-window -t test-sess:win_gen 2>/dev/null || true
 if [[ "$bots_out" =~ "💻 Pane" ]]; then
-    echo "FAIL: Bots view should NOT contain generic '💻 Pane' entries, got: $bots_out"
+    echo "FAIL: Attention Hub should NOT contain generic '💻 Pane' entries, got: $bots_out"
     exit 1
 else
     echo "PASS"

@@ -116,7 +116,7 @@ cheat_sheet() {
   │                   tmux-glance Viewfinder                    │
   ├─────────────────────────────────────────────────────────────┤
   │ View Controls:                                              │
-  │   Ctrl-g       Toggle Global Panes <-> Bots & Views         │
+  │   Ctrl-g       Toggle Global Panes <-> Attention Hub        │
   │   Ctrl-s       Switch to Sessionizer (Workspaces)           │
   │   Ctrl-h       Switch to Jump History Timeline              │
   │                                                             │
@@ -146,13 +146,12 @@ list_bookmarks() {
         source_pane=$(tmux display-message -p '#{pane_id}' 2>/dev/null || true)
     fi
 
-    local initial_mode="bots"
+    local initial_mode="hub"
     case "$req_mode" in
         all|global) initial_mode="all" ;;
         sessions)   initial_mode="sessions" ;;
         history)    initial_mode="history" ;;
-        bots)       initial_mode="bots" ;;
-        attention)  initial_mode="attention" ;;
+        hub|bots|attention) initial_mode="hub" ;;
         auto)
             # Default to all-panes if state file is empty (nothing tracked yet).
             if ! "$ENGINE" list-raw current 2>/dev/null | grep -q '[^[:space:]]'; then
@@ -251,6 +250,45 @@ list_bookmarks() {
 # --- Command dispatch ---
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     case "${1:-list}" in
+        --help|-h|help)
+            cat << 'EOF'
+tmux-glance v1.0.0 — Ambient Terminal Sentinels & Background Agent Orchestration for Tmux
+
+Usage:
+  tmux-glance [command] [args...]
+
+Interactive Modes (FZF Viewfinder):
+  list [hub|all|sessions|history]   Open viewfinder popup in specified mode (default: hub)
+  list-all, list-global             Open viewfinder in Global Panes (Go-To) mode (prefix g)
+  list-hub, list-bots               Open viewfinder in Attention Hub mode (prefix b)
+  list-sessions, sessions           Open viewfinder in Sessionizer mode (Ctrl-s in modal)
+  list-history, history             Open viewfinder in Jump History mode (prefix Tab)
+
+Actions & Controls:
+  status                            Print formatted status-right badges (<50ms budget)
+  scan [--force]                    Scan and evaluate server panes for agent state changes
+  on-focus [pane_id]                Pane focus hook for dwelled alert auto-acknowledgment
+  toggle-vigil                      Watch / unwatch active pane for output changes (prefix v)
+  next-attention, cnext             Jump to next attention queue item (prefix -r })
+  prev-attention, cprev             Jump to previous attention queue item (prefix -r {)
+  jump-back, undo                   Jump back in jump history stack (prefix -r <)
+  jump-forward, redo                Jump forward in jump history stack (prefix -r >)
+  jump-slot <h|j|k|l>               Jump to pinned Harpoon session slot (prefix C-h/j/k/l)
+  assign-slot <h|j|k|l> [session]   Assign session to Harpoon slot
+  unassign-slot [session]           Unassign session from Harpoon slot
+  clear-history                     Clear jump history stack
+  cheat-sheet                       Display in-modal navigation cheat sheet
+
+General Options:
+  -h, --help, help                  Show this help message
+  -v, --version, version            Print version
+EOF
+            exit 0
+            ;;
+        --version|-v|version)
+            echo "tmux-glance v1.0.0"
+            exit 0
+            ;;
         # Pure bash commands (no engine needed)
         preview)
             shift
@@ -266,15 +304,15 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
         # fzf popup launchers (bash + engine for data)
         list)
             shift || true
-            list_bookmarks "${1:-bots}" "${2:-}"
+            list_bookmarks "${1:-hub}" "${2:-}"
             ;;
         list-all|list-global)
             shift || true
             list_bookmarks "all" "${1:-}"
             ;;
-        list-bots)
+        list-hub|list-bots)
             shift || true
-            list_bookmarks "bots" "${1:-}"
+            list_bookmarks "hub" "${1:-}"
             ;;
         list-sessions|sessions)
             shift || true

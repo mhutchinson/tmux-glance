@@ -325,7 +325,7 @@ func run(ctx context.Context, args []string) error {
 		return nil
 
 	case "mode-header":
-		target := "bots"
+		target := "hub"
 		if len(rest) > 0 {
 			target = rest[0]
 		}
@@ -342,7 +342,7 @@ func run(ctx context.Context, args []string) error {
 		}
 		curMode, _ := tmuxClient.GetGlobalOption(ctx, "@glance_mode")
 		if curMode == "" {
-			curMode = "bots"
+			curMode = "hub"
 		}
 		targetMode := resolveMode(curMode, targetReq)
 		tmuxClient.SetGlobalOption(ctx, "@glance_mode", targetMode) //nolint:errcheck
@@ -358,6 +358,14 @@ func run(ctx context.Context, args []string) error {
 			pos = stack.CursorPos(ctx, curPane)
 		}
 		fmt.Printf("reload(%s list-raw %s)+change-header(%s)+wait+pos(%d)", selfBin, targetMode, header, pos)
+		return nil
+
+	case "help", "--help", "-h":
+		fmt.Println("usage: glance-engine {status|scan|on-focus|add|remove|toggle-vigil|is-watched|list-raw|mode-header|record-jump|shift-to|jump-back|jump-forward|next-attention|prev-attention|jump-slot|assign-slot|unassign-slot|query-slot|clear-history|history-cursor-pos|eval-mode-action}")
+		return nil
+
+	case "version", "--version", "-v":
+		fmt.Println("glance-engine v1.0.0")
 		return nil
 
 	default:
@@ -427,7 +435,7 @@ func removeVigil(ctx context.Context, store *state.FileStore, tc *tmux.Client, p
 func listRaw(ctx context.Context, store *state.FileStore, reg *sentinel.Registry, slotStore *slots.Store, tc *tmux.Client, stack *jumplist.Stack, mode string) error {
 	curMode, _ := tc.GetGlobalOption(ctx, "@glance_mode")
 	if curMode == "" {
-		curMode = "bots"
+		curMode = "hub"
 	}
 
 	targetMode := resolveMode(curMode, mode)
@@ -460,7 +468,7 @@ func listRaw(ctx context.Context, store *state.FileStore, reg *sentinel.Registry
 		}
 		fmt.Print(formatter.HistoryList(fwd, back, cur, paneInfoFn))
 
-	default: // "bots", "attention"
+	default: // "hub", "bots", "attention"
 		panes, _ := tc.ListAllPanes(ctx)
 		resolver := funcResolver{fn: func(cmd string) string { return reg.Resolve(ctx, cmd) }}
 		fmt.Print(formatter.BotsList(entries, panes, resolver))
@@ -477,13 +485,13 @@ func (f funcResolver) Resolve(cmd string) string { return f.fn(cmd) }
 func modeHeader(mode string) string {
 	switch mode {
 	case "all", "global":
-		return "👁️ Global (Ctrl-g: Bots | Ctrl-s: Sessions | Ctrl-h: History | Ctrl-/: Help)"
+		return "👁️ Global (Ctrl-g: Hub | Ctrl-s: Sessions | Ctrl-h: History | Ctrl-/: Help)"
 	case "sessions":
 		return "👁️ Sessions (Ctrl-p: Pin | Ctrl-g: Global | Ctrl-h: History | Ctrl-/: Help)"
 	case "history":
 		return "👁️ History (Ctrl-x: Clear | Ctrl-g: Global | Ctrl-s: Sessions | Ctrl-/: Help)"
-	default: // "bots", "attention"
-		return "👁️ Bots (Ctrl-g: Global | Ctrl-s: Sessions | Ctrl-h: History | Ctrl-/: Help)"
+	default: // "hub", "bots", "attention"
+		return "👁️ Attention Hub (Ctrl-g: Global | Ctrl-s: Sessions | Ctrl-h: History | Ctrl-/: Help)"
 	}
 }
 
@@ -494,11 +502,11 @@ func resolveMode(curMode, req string) string {
 		return curMode
 	case "toggle", "toggle-global", "global-toggle":
 		if curMode == "all" {
-			return "bots"
+			return "hub"
 		}
 		return "all"
-	case "bots", "attention":
-		return "bots"
+	case "hub", "bots", "attention":
+		return "hub"
 	case "all", "global":
 		return "all"
 	case "sessions", "toggle-sessions", "sessions-toggle":

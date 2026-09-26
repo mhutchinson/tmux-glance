@@ -61,7 +61,7 @@ If the status bar is quiet, you stay focused on your active code. Badges follow 
 - `🤖 ⚡ 2` — Background agents actively running.
 - `🤖 ✓ 1` — An agent completed its task or updated its output.
 
-With one keystroke (`prefix b`), open the **Bots & Views** popup to see agent tasks and vigils (with urgent alerts and blocked prompts prioritized to the top), inspect their output with live ANSI preview, and press `Enter` to jump straight to the pane.
+With one keystroke (`prefix b`), open the **Attention Hub** popup to see agent tasks and vigils (with urgent alerts and blocked prompts prioritized to the top), inspect their output with live ANSI preview, and press `Enter` to jump straight to the pane.
 
 ---
 
@@ -72,16 +72,15 @@ With one keystroke (`prefix b`), open the **Bots & Views** popup to see agent ta
 | Key | Action | Description |
 | :--- | :--- | :--- |
 | `prefix g` | **Global Panes (Go-To)** | Server-wide teleporter across 100% of panes in every session and window. Active tasks sort to top; preview live output and jump straight there. |
-| `prefix b` | **Bots & Views** | Sentinels & watches filtered to agent tasks and manual vigils, sorted strictly by priority (`🚨`, `🤖 ⏳`, `🤖 ✓`, `🤖 ⚡`, `👁️`, `🤖 💤`). |
+| `prefix b` | **Attention Hub** | Central dashboard for all panes needing attention: active vigils and agent tasks, sorted strictly by priority (`🚨`, `🤖 ⏳`, `🤖 ✓`, `🤖 ⚡`, `👁️`, `🤖 💤`). |
 | `prefix v` | **Toggle Vigil** | Slap a watchful sentinel on the current pane (or release it). |
 
 > **Inside the Viewfinder Popup:**
-> * `Ctrl-g` — Switch directly to Global Panes (All Panes).
-> * `Ctrl-b` — Toggle between Bots & Views and Global Panes.
+> * `Ctrl-g` — Toggle between Global Panes (all) and the Attention Hub.
 > * `Ctrl-s` — Switch to the Sessionizer to search and jump between active tmux sessions with ambient status badges.
 > * `Ctrl-h` — Switch to Jump History timeline (`FWD` / `CUR` / `BACK`) with live previews.
-> * `Ctrl-x` — Clear the jump history stack (useful for context switches or privacy).
-> * `Ctrl-p` — Pin / unpin highlighted session to a Harpoon slot (`h`, `j`, `k`, `l`). *(Note: badge renders on next cursor movement `Up`/`Down`)*.
+> * `Ctrl-x` — Clear the jump history stack (scoped to History view).
+> * `Ctrl-p` — Pin / unpin highlighted session to a Harpoon slot (`h`, `j`, `k`, `l`, scoped to Sessions view).
 > * `Ctrl-/` / `F1` — Open the in-modal cheat sheet overlay.
 > * `Enter` — Teleport straight into the selected pane or session.
 > * `Esc` — Close the popup without jumping.
@@ -199,51 +198,48 @@ set -g status-right '#(tmux-glance status) %H:%M '
 
 2. **Test Keybindings:**
    - Press `prefix + g`: The **Global Panes (Go-To)** popup should appear.
-   - Press `prefix + b`: The **Bots & Views** popup should appear.
+   - Press `prefix + b`: The **Attention Hub** popup should appear.
    - Press `prefix + v`: You should see a status message: `👁️ Vigil active: ...` (press again to release).
 
 ---
 
-## Pluggable Sentinels
+## Pluggable Sentinels & Agent Detection
 
-`tmux-glance` uses modular Sentinels to inspect different agent TUIs and processes. Sentinels live in `sentinels/` or your personal config directory `~/.config/tmux-glance/sentinels/`.
+`tmux-glance` uses modular Sentinels implemented natively in Go (`internal/sentinel/`) to classify agent TUIs, track states, and normalize screen buffers with zero subprocess overhead.
 
-### The Sentinel Contract
+### Built-in Sentinels
+- **`antigravity`**: Autonomous coding agent detection via process tree inspection (`#{pane_pid}`). Tracks `waiting` (permission prompts, subagent approvals), `running`, and `idle` states while normalizing braille spinners (`[⠋⠙⠹...]`) and streaming thoughts out of buffer hashes.
+- **`generic`**: Universal fallback for standard shell commands, compilations, and vigils (`StateWatching`, `StateAlert`).
 
-To add support for a new tool (e.g. Claude Code, Aider, or a custom build tool), create a shell script:
+### Custom Command Routing (`routes`)
+If you wrap an agent in a custom script or alias, map it directly to a built-in sentinel without writing code:
 
-```bash
-#!/usr/bin/env bash
+```tmux
+# In ~/.tmux.conf
+set -g @glance_routes 'my-agent=antigravity,dev-bot=antigravity'
+```
 
-# 1. Suggested default commands for the routing table
-sentinel_myagent_default_commands=("myagent" "myagent-cli")
+Or in Home Manager (`home.nix`):
+```nix
+programs.tmux-glance.routes = {
+  my-agent = "antigravity";
+  dev-bot = "antigravity";
+};
+```
 
-# 2. Classifier: return "state\tlabel"
-#    Available states: waiting | running | done | idle
-sentinel_myagent_classify() {
-    local pane_id="$1" path="$2" cmd="$3"
-    local tail_text
-    tail_text=$(tmux capture-pane -p -t "$pane_id" 2>/dev/null | tail -n 4)
+### Adding New Sentinels
+To add native support for new tools (e.g. Claude Code, Aider), implement the `sentinel.Sentinel` interface in `internal/sentinel/`:
 
-    if [[ "$tail_text" =~ "Permission required" ]]; then
-        printf "waiting\tpermission required in %s\n" "$(basename "$path")"
-    elif [[ "$tail_text" =~ "Working..." ]]; then
-        printf "running\trunning in %s\n" "$(basename "$path")"
-    else
-        printf "idle\tidle in %s\n" "$(basename "$path")"
-    fi
-}
-
-# 3. Fingerprint: return normalized hash of screen buffer
-sentinel_myagent_fingerprint() {
-    local pane_id="$1"
-    tmux capture-pane -p -t "$pane_id" 2>/dev/null \
-        | grep -vE '^[[:space:]]*Progress: [0-9]+%' \
-        | md5sum | cut -d' ' -f1
+```go
+type Sentinel interface {
+    Name() string
+    Matches(pane tmux.PaneInfo) bool
+    Classify(ctx context.Context, pane tmux.PaneInfo, buffer string) (Classification, error)
+    Fingerprint(ctx context.Context, pane tmux.PaneInfo, buffer string) (string, error)
 }
 ```
 
-Drop it in `~/.config/tmux-glance/sentinels/myagent.sh` and it will be loaded automatically!
+Sentinels run in-memory within the compiled `glance-engine` binary for sub-millisecond status polling performance.
 
 ---
 
@@ -260,7 +256,7 @@ programs.tmux-glance = {
   # Custom keybindings (defaults: g, b, v; Tier 2: Tab)
   keybindings = {
     glance = "g";  # prefix + g: Global Panes (Go-To Teleport)
-    hub = "b";     # prefix + b: Bots & Views
+    hub = "b";     # prefix + b: Attention Hub
     vigil = "v";   # prefix + v: Toggle Vigil on current pane
     history = "Tab"; # prefix + Tab: Jump History Timeline (Tier 2)
   };
@@ -437,10 +433,7 @@ just gh-issues
 - [x] **v0.6: In-Dashboard Sessionizer (`Ctrl-s`) & Jump History** — Search and switch tmux sessions directly within the Glance dashboard with ambient status badges. Dual Back/Forward jump stack (`Ctrl-h`, `jump-back`, `jump-forward`) with Harpoon slot assignment.
 - [x] **v0.7: Go Engine Rewrite** — Replaced the 1,816-line bash monolith with a typed Go binary (`glance-engine`) and a 140-line thin bash dispatcher (93% bash reduction). Goroutine fan-out for concurrent pane evaluation. Fixes Issues [#2](https://github.com/mhutchinson/tmux-glance/issues/2) (history frame-shift), [#3](https://github.com/mhutchinson/tmux-glance/issues/3) (sentinel `pane_id` missing), and [#5](https://github.com/mhutchinson/tmux-glance/issues/5) (stale vigil labels) structurally.
 - [x] **v0.8: Quickfix Attention Cycling & Repeatable Navigation (`prefix -r }` / `prefix -r {`)** — Vim quickfix-style cycling directly through active attention panes (`🚨 Alert` > `🤖 ⏳ Waiting` > `🤖 ✓ Finished`) with cyclic progress status feedback. Repeatable 2-keystroke jump history flipping (`prefix -r <` / `prefix -r >`) and whiz-past dwell-time protection to prevent premature alert auto-acknowledgment.
-
-### Upcoming Roadmap
-
-- [ ] **v1.0: Production Hardening, Dogfooding & Polish** — End-to-end edge-case hardening across diverse terminal dimensions and nested tmux workflows, full dogfooding cycle, documentation polish, and config contract freeze.
+- [x] **v1.0: Production Hardening, Dogfooding & Polish** — End-to-end edge-case hardening across diverse terminal dimensions and nested tmux workflows, full dogfooding cycle, documentation polish, and config contract freeze.
 
 ### Potential Features
 

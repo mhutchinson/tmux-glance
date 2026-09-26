@@ -32,7 +32,7 @@ live: go-build
         exit 1; \
     fi
     @tmux bind-key s display-popup -E -w 85% -h 75% "$PWD/bin/tmux-glance list-sessions"
-    @tmux bind-key b display-popup -E -w 85% -h 75% "$PWD/bin/tmux-glance list bots"
+    @tmux bind-key b display-popup -E -w 85% -h 75% "$PWD/bin/tmux-glance list hub"
     @tmux bind-key g display-popup -E -w 85% -h 75% "$PWD/bin/tmux-glance list-all"
     @tmux bind-key v run-shell "$PWD/bin/tmux-glance toggle-vigil"
     @tmux bind-key Tab display-popup -E -w 85% -h 75% "$PWD/bin/tmux-glance list-history"

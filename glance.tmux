@@ -13,9 +13,9 @@ fi
 glance_key="$(tmux show-option -gqv @glance_key)"
 glance_key="${glance_key:-g}"
 
-hub_key="$(tmux show-option -gqv @glance_bots_key)"
+hub_key="$(tmux show-option -gqv @glance_hub_key)"
 if [[ -z "$hub_key" ]]; then
-    hub_key="$(tmux show-option -gqv @glance_hub_key)"
+    hub_key="$(tmux show-option -gqv @glance_bots_key)"
 fi
 hub_key="${hub_key:-b}"
 
@@ -31,8 +31,8 @@ popup_height="${popup_height:-75%}"
 # Bind Global Panes (Go-To Teleport) view (prefix + g)
 tmux bind-key "$glance_key" display-popup -E -w "$popup_width" -h "$popup_height" "$GLANCE_BIN list-all #{pane_id}"
 
-# Bind Bots & Views (prefix + b)
-tmux bind-key "$hub_key" display-popup -E -w "$popup_width" -h "$popup_height" "$GLANCE_BIN list bots #{pane_id}"
+# Bind Attention Hub (prefix + b)
+tmux bind-key "$hub_key" display-popup -E -w "$popup_width" -h "$popup_height" "$GLANCE_BIN list hub #{pane_id}"
 
 # Bind Vigil toggle (prefix + v)
 tmux bind-key "$vigil_key" run-shell "$GLANCE_BIN toggle-vigil"
@@ -67,9 +67,9 @@ fi
 enable_quickfix="$(tmux show-option -gqv @glance_enable_quickfix)"
 if [[ "$enable_quickfix" =~ ^(on|yes|true|1)$ ]]; then
     next_key="$(tmux show-option -gqv @glance_quickfix_next)"
-    next_key="${next_key:-}}"
+    next_key="${next_key:-"}"}"
     prev_key="$(tmux show-option -gqv @glance_quickfix_prev)"
-    prev_key="${prev_key:-{}"
+    prev_key="${prev_key:-"{"}"
 
     if [[ -n "$next_key" && "$next_key" != "off" && "$next_key" != "none" ]]; then
         tmux bind-key -r "$next_key" run-shell "$GLANCE_BIN next-attention #{pane_id}"

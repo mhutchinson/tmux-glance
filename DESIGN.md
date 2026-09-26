@@ -10,7 +10,7 @@
 
 As terminal workflows transition from synchronous shell commands to autonomous, long-running processes—such as background AI coding agents (Antigravity, Claude Code, Aider), compilation pipelines (`cargo build`, `nix build`), remote database syncs, and test suites—developers suffer from chronic **speculative window hopping**: cycling through tmux windows and panes simply to inspect whether a process has completed, failed, or blocked waiting for user input.
 
-`tmux-glance` eliminates speculative hopping by establishing an **ambient status-right telemetry protocol**, an on-demand **Bots & Views** viewfinder (`prefix b`), a server-wide **Global Panes Go-To teleporter** (`prefix g`), and instant single-pane **Vigil watches** (`prefix v`).
+`tmux-glance` eliminates speculative hopping by establishing an **ambient status-right telemetry protocol**, an on-demand **Attention Hub** viewfinder (`prefix b`), a server-wide **Global Panes Go-To teleporter** (`prefix g`), and instant single-pane **Vigil watches** (`prefix v`).
 
 ---
 
@@ -88,7 +88,7 @@ flowchart TD
 
     subgraph Presentation
         Status["Tmux status-right\n'🚨 1  👁️ 1  🤖 ⏳ 1'"]
-        Hub["Bots & Views (prefix b)\nAgent tasks & vigils sorted by severity"]
+        Hub["Attention Hub (prefix b)\nAgent tasks & vigils sorted by severity"]
         Fleet["Global Panes (prefix g)\n100% of panes teleporter"]
         Sessions["Sessionizer (prefix s)\nWorkspace switcher + slot badges"]
         Preview["fzf ANSI Live Preview\n(tmux capture-pane)"]
@@ -142,13 +142,19 @@ When command names are generic wrappers (e.g. `cli`, `agent`, `run`), `Matches(p
   * `IDLE`: Detects resting prompt (`? for shortcuts`). Note that `WAITING` cues take precedence over `IDLE`, as the footer resting prompt (`? for shortcuts`) remains visible while subagents are blocked waiting for approval.
 * **Thinking Spinner Normalizer:**
   Antigravity streams thoughts and animates braille spinners (`[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏⣾⣽⣻⢿⡿⣟⣯⣷]`) in-place during thinking blocks. The normalizer strips these lines before hashing:
-  ```bash
-  sentinel_antigravity_fingerprint() {
-      local pane_id="$1"
-      tmux capture-pane -p -t "$pane_id" 2>/dev/null \
-          | grep -vE '^[[:space:]]*[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏⣾⣽⣻⢿⡿⣟⣯⣷][[:space:]]' \
-          | sed -E 's/Thinking\.\.\..*//' \
-          | (md5 -q 2>/dev/null || md5sum 2>/dev/null | cut -d' ' -f1 || cksum | cut -d' ' -f1)
+  ```go
+  func (a *Antigravity) Fingerprint(_ context.Context, _ tmux.PaneInfo, buffer string) (string, error) {
+      lines := strings.Split(buffer, "\n")
+      var normalized []string
+      for _, l := range lines {
+          if reSpinnerLine.MatchString(l) {
+              continue
+          }
+          clean := reThinking.ReplaceAllString(l, "")
+          normalized = append(normalized, clean)
+      }
+      h := md5.Sum([]byte(strings.Join(normalized, "\n")))
+      return hex.EncodeToString(h[:]), nil
   }
   ```
 
@@ -157,8 +163,8 @@ When command names are generic wrappers (e.g. `cli`, `agent`, `run`), `Matches(p
 * **Classification:** Returns `watching` or `alert` based on screen fingerprint divergence.
 * **Fingerprint:** Raw visible buffer MD5 hash.
 
-### Third-Party Sentinels (e.g. Claude CLI)
-* Explicitly marked as non-core community contribution targets. Any contributor can implement `sentinels/claude.sh` conforming to the Sentinel Contract.
+### Third-Party Sentinels (e.g. Claude Code, Aider)
+* Pluggable into `internal/sentinel/` implementing the Go `Sentinel` interface, or mapped via user route overrides (`@glance_routes`).
 
 ---
 
@@ -214,9 +220,9 @@ Only binds dedicated, non-disruptive keys. Preserves all standard tmux navigatio
 | Keybinding | Scope | Purpose |
 | :--- | :--- | :--- |
 | `prefix g` | Global | **Global Panes (Go-To):** Search across 100% of panes in every session and window to preview and jump straight there. Active tasks sort to top. |
-| `prefix b` | Global | **Bots & Views:** Agent tasks and vigils sorted strictly by severity (`🚨` > `🤖 ⏳` > `🤖 ✓` > `🤖 ⚡` > `👁️` > `🤖 💤`). |
+| `prefix b` | Global | **Attention Hub:** Agent tasks and vigils sorted strictly by severity (`🚨` > `🤖 ⏳` > `🤖 ✓` > `🤖 ⚡` > `👁️` > `🤖 💤`). |
 | `prefix v` | Global | **Vigil Toggle:** Instantly watch/unwatch current pane for output. |
-| `Ctrl-g` | *Popup only* | **Toggle Panes:** Flip between Global Panes (all) and Bots & Views inside fzf. |
+| `Ctrl-g` | *Popup only* | **Toggle Panes:** Flip between Global Panes (all) and Attention Hub inside fzf. |
 | `Ctrl-s` | *Popup only* | **Sessionizer:** Switch to active tmux sessions with ambient status badges. |
 | `Ctrl-p` | *Popup only (Sessions)* | **Pin Slot:** Assign or clear Harpoon session slot (`h/j/k/l`). |
 | `Ctrl-h` | *Popup only* | **History:** Switch to Jump History timeline (`FWD` / `CUR` / `BACK`). |
