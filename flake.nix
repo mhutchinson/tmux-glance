@@ -26,7 +26,7 @@
           # Go engine binary (stateful core).
           glance-engine = pkgs.buildGoModule {
             pname = "glance-engine";
-            version = "0.7.0";
+            version = "1.0.0";
             src = ./.;
 
             # No external Go dependencies — stdlib only.
@@ -47,7 +47,7 @@
           # Full tmux-glance package: bash dispatcher + engine + sentinels.
           tmux-glance = pkgs.stdenv.mkDerivation {
             pname = "tmux-glance";
-            version = "0.7.0";
+            version = "1.0.0";
             src = ./.;
 
             nativeBuildInputs = [ pkgs.makeWrapper ];
@@ -114,7 +114,7 @@
               export GOPATH=$TMPDIR/go
               export GOCACHE=$TMPDIR/cache
               # Run with -race on Linux; without on Darwin (Nix sandbox).
-              ${if pkgs.stdenv.isLinux then ''
+              ${if pkgs.stdenv.hostPlatform.isLinux then ''
                 go test -race ./...
               '' else ''
                 go test ./...

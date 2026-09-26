@@ -1,7 +1,7 @@
 # System Architecture: `tmux-glance`
 
 **Ambient Terminal Sentinels & Background Agent Orchestration for Tmux**  
-*Status: Approved & Implemented (v0.7 — Go engine)*  
+*Status: Approved & Implemented (v1.0)*  
 *Target: Standalone Open-Source Project (`github:mhutchinson/tmux-glance`)*
 
 ---

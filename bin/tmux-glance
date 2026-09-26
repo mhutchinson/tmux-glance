@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# tmux-glance v0.7 — thin bash dispatcher
+# tmux-glance v1.0 — thin bash dispatcher
 # All stateful engine logic has moved to glance-engine (Go binary).
 # This script handles:
 #   - fzf popup assembly (list-bookmarks / list-all / list-sessions / list-history)
