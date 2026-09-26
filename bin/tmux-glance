@@ -116,10 +116,9 @@ cheat_sheet() {
   │                   tmux-glance Viewfinder                    │
   ├─────────────────────────────────────────────────────────────┤
   │ View Controls:                                              │
-  │   Ctrl-g       Switch to Global Panes (All Panes)           │
-  │   Ctrl-b       Toggle Bots & Views <-> Global Panes         │
-  │   Ctrl-s       Toggle Sessionizer (Workspaces)              │
-  │   Ctrl-h       Toggle Jump History Timeline (FWD/CUR/BACK)  │
+  │   Ctrl-g       Toggle Global Panes <-> Bots & Views         │
+  │   Ctrl-s       Switch to Sessionizer (Workspaces)           │
+  │   Ctrl-h       Switch to Jump History Timeline              │
   │                                                             │
   │ History Actions:                                            │
   │   Ctrl-x       Clear jump history stack                     │
@@ -163,6 +162,8 @@ list_bookmarks() {
     esac
 
     tmux set-option -g @glance_mode "$initial_mode" 2>/dev/null || true
+    local header
+    header=$("$ENGINE" mode-header "$initial_mode" 2>/dev/null || echo "👁️ tmux-glance")
 
     local fzf_extra_args=()
     if [[ -n "${TMUX_GLANCE_FZF_FILTER:-}" ]]; then
@@ -182,14 +183,13 @@ list_bookmarks() {
         --delimiter=$'\t' \
         --with-nth=1 \
         --ansi \
-        --header="👁️ tmux-glance (Ctrl-g: Global | Ctrl-b: Bots | Ctrl-s: Sessions | Ctrl-h: History | Ctrl-p: Pin | Ctrl-x: Clear | Ctrl-/: Help | Enter: Jump)" \
+        --header="$header" \
         --layout=reverse \
         --border=rounded \
         --info=inline \
-        --bind "ctrl-b:reload($ENGINE list-raw toggle)+wait+pos(1)" \
-        --bind "ctrl-g:reload($ENGINE list-raw all)+wait+pos(1)" \
-        --bind "ctrl-s:reload($ENGINE list-raw toggle-sessions)+wait+pos(1)" \
-        --bind "ctrl-h:transform($ENGINE eval-history-action)" \
+        --bind "ctrl-g:transform($ENGINE eval-mode-action toggle-global)" \
+        --bind "ctrl-s:transform($ENGINE eval-mode-action sessions)" \
+        --bind "ctrl-h:transform($ENGINE eval-mode-action history)" \
         --bind "ctrl-x:execute($ENGINE clear-history)+reload($ENGINE list-raw current)+wait+pos(1)" \
         --bind "ctrl-p:execute($SELF_BIN pin-interactive {2})+reload($ENGINE list-raw current)" \
         --bind "ctrl-/:execute($SELF_BIN cheat-sheet)" \

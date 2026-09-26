@@ -344,22 +344,28 @@ else
     exit 1
 fi
 
-# 17. Sessionizer mode toggling
-echo -n "Test 16: Sessionizer mode toggling (Ctrl-s flip back and forth)... "
-tmux -S "$SOCK" set-option -g @glance_mode "attention"
-tmux -S "$SOCK" run-shell "bash '$BIN' list-raw toggle-sessions > /dev/null"
+# 17. Sessionizer and Global mode switching
+echo -n "Test 16: Sessionizer and Global mode switching... "
+tmux -S "$SOCK" set-option -g @glance_mode "bots"
+tmux -S "$SOCK" run-shell "bash '$BIN' list-raw sessions > /dev/null"
 mode_after_first=$(tmux -S "$SOCK" show-option -gv @glance_mode)
 if [[ "$mode_after_first" != "sessions" ]]; then
     echo "FAIL: Expected mode 'sessions', got '$mode_after_first'"
     exit 1
 fi
-tmux -S "$SOCK" run-shell "bash '$BIN' list-raw toggle-sessions > /dev/null"
+tmux -S "$SOCK" run-shell "bash '$BIN' list-raw toggle-global > /dev/null"
 mode_after_second=$(tmux -S "$SOCK" show-option -gv @glance_mode)
-if [[ "$mode_after_second" != "attention" ]]; then
-    echo "FAIL: Expected restored mode 'attention', got '$mode_after_second'"
+if [[ "$mode_after_second" != "all" ]]; then
+    echo "FAIL: Expected mode 'all', got '$mode_after_second'"
     exit 1
 fi
-echo "PASS (Mode flips attention -> sessions -> attention)"
+tmux -S "$SOCK" run-shell "bash '$BIN' list-raw toggle-global > /dev/null"
+mode_after_third=$(tmux -S "$SOCK" show-option -gv @glance_mode)
+if [[ "$mode_after_third" != "bots" ]]; then
+    echo "FAIL: Expected restored mode 'bots', got '$mode_after_third'"
+    exit 1
+fi
+echo "PASS (Mode transitions bots -> sessions -> all -> bots)"
 
 # 18. Live preview streams active pane of target session
 echo -n "Test 17: Live preview actively streams target session active pane... "
@@ -433,7 +439,7 @@ echo -n "Test 20: In-Modal Cheat Sheet outputs clean modal-only shortcuts... "
 rm -f "$STATUS_FILE"
 echo "" | bash "$BIN" cheat-sheet > "$STATUS_FILE" 2>&1 || true
 cheat_out=$(cat "$STATUS_FILE")
-if [[ "$cheat_out" =~ "tmux-glance Viewfinder" ]] && [[ "$cheat_out" =~ "Ctrl-p" ]] && [[ "$cheat_out" =~ "Ctrl-s" ]] && [[ "$cheat_out" =~ "Ctrl-b" ]] && [[ "$cheat_out" =~ "Ctrl-h" ]]; then
+if [[ "$cheat_out" =~ "tmux-glance Viewfinder" ]] && [[ "$cheat_out" =~ "Ctrl-p" ]] && [[ "$cheat_out" =~ "Ctrl-s" ]] && [[ "$cheat_out" =~ "Ctrl-g" ]] && [[ "$cheat_out" =~ "Ctrl-h" ]]; then
     echo "PASS"
 else
     echo "FAIL: Cheat sheet output missing expected controls: $cheat_out"

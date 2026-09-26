@@ -21,7 +21,7 @@ As terminal workflows transition from synchronous shell commands to autonomous, 
    * Only registers non-disruptive core bindings by default (`prefix g`, `prefix b`, `prefix v`).
    * Never hijacks standard tmux defaults (especially `prefix [` copy-mode, or `c`, `z`, `n`, `p`).
    * Direct navigation chords, jumplist rewinds, and quickfix cycling are strictly Tier 2 opt-ins (`@glance_enable_*`).
-   * Interactive search keys (`Ctrl-b`, `Ctrl-s`, `Ctrl-h`, `Enter`) stay strictly scoped inside the `fzf` popup subprocess.
+   * Interactive search keys (`Ctrl-g`, `Ctrl-s`, `Ctrl-h`, `Enter`) stay strictly scoped inside the `fzf` popup subprocess.
 3. **Sub-50ms Status Bar Execution Budget:** `tmux-glance status` runs synchronously inside `status-right` on tmux's `status-interval`. It must execute in `< 50ms`. Non-candidate panes (standard shells/compilations without active vigils) are bypassed immediately in O(1) time without capture-pane or hashing subprocesses. Candidate agent panes and vigils are evaluated concurrently across parallel worker subshells, and background scans are debounced via a configurable cooldown threshold (`@glance_scan_cooldown`). All external telemetry (such as API quotas or saturation gauges) must read pre-warmed local cache files written asynchronously out-of-band.
 4. **Pluggable Sentinels:** Agent TUIs and process monitors are decoupled behind a clean, pluggable Sentinel interface (`matches`, `classify`, `fingerprint`), enabling modular support for diverse agents without core multiplexer entanglement.
 5. **Intelligent Thought & Spinner Normalization:** Sentinels strip transient visual noise—such as animated braille spinners (`[⣟⣯⣷]`) and streaming thought indicators—before computing buffer fingerprints, eliminating false-positive unread alarms.
@@ -216,12 +216,11 @@ Only binds dedicated, non-disruptive keys. Preserves all standard tmux navigatio
 | `prefix g` | Global | **Global Panes (Go-To):** Search across 100% of panes in every session and window to preview and jump straight there. Active tasks sort to top. |
 | `prefix b` | Global | **Bots & Views:** Agent tasks and vigils sorted strictly by severity (`🚨` > `🤖 ⏳` > `🤖 ✓` > `🤖 ⚡` > `👁️` > `🤖 💤`). |
 | `prefix v` | Global | **Vigil Toggle:** Instantly watch/unwatch current pane for output. |
-| `Ctrl-g` | *Popup only* | **Global Panes:** Switch directly to Global (All Panes) view. |
-| `Ctrl-b` | *Popup only* | **Toggle View:** Flip between Bots & Views and Global Panes inside fzf. |
-| `Ctrl-s` | *Popup only* | **Sessionizer:** Flip to active tmux sessions with ambient status badges. |
-| `Ctrl-p` | *Popup only (Sessionizer)* | **Pin Slot:** Assign or clear Harpoon session slot (`h/j/k/l`). |
-| `Ctrl-h` | *Popup only* | **History:** Flip to Jump History timeline (`FWD` / `CUR` / `BACK`). |
-| `Ctrl-x` | *Popup only* | **Clear History:** Wipe the jump history stack cleanly. |
+| `Ctrl-g` | *Popup only* | **Toggle Panes:** Flip between Global Panes (all) and Bots & Views inside fzf. |
+| `Ctrl-s` | *Popup only* | **Sessionizer:** Switch to active tmux sessions with ambient status badges. |
+| `Ctrl-p` | *Popup only (Sessions)* | **Pin Slot:** Assign or clear Harpoon session slot (`h/j/k/l`). |
+| `Ctrl-h` | *Popup only* | **History:** Switch to Jump History timeline (`FWD` / `CUR` / `BACK`). |
+| `Ctrl-x` | *Popup only (History)* | **Clear History:** Wipe the jump history stack cleanly. |
 | `Ctrl-/` / `F1` | *Popup only* | **Cheat Sheet:** Display modal-only navigation shortcuts overlay. |
 | `Enter` | *Popup only* | **Jump:** Instantly switch client, window, and pane to target. |
 

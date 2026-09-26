@@ -324,23 +324,44 @@ func run(ctx context.Context, args []string) error {
 		fmt.Println(pos)
 		return nil
 
-	case "eval-history-action":
+	case "mode-header":
+		target := "bots"
+		if len(rest) > 0 {
+			target = rest[0]
+		}
+		if target == "current" {
+			target, _ = tmuxClient.GetGlobalOption(ctx, "@glance_mode")
+		}
+		fmt.Println(modeHeader(target))
+		return nil
+
+	case "eval-mode-action", "eval-history-action":
+		targetReq := "history"
+		if len(rest) > 0 {
+			targetReq = rest[0]
+		}
 		curMode, _ := tmuxClient.GetGlobalOption(ctx, "@glance_mode")
+		if curMode == "" {
+			curMode = "bots"
+		}
+		targetMode := resolveMode(curMode, targetReq)
+		tmuxClient.SetGlobalOption(ctx, "@glance_mode", targetMode) //nolint:errcheck
+
 		selfBin := os.Getenv("TMUX_GLANCE_BIN")
 		if selfBin == "" {
 			selfBin = "tmux-glance"
 		}
-		if strings.TrimSpace(curMode) == "history" {
-			fmt.Printf("reload(%s list-raw toggle-history)+wait+pos(1)", selfBin)
-		} else {
+		header := modeHeader(targetMode)
+		pos := 1
+		if targetMode == "history" {
 			curPane, _ := tmuxClient.GetPaneField(ctx, "", "#{pane_id}")
-			pos := stack.CursorPos(ctx, curPane)
-			fmt.Printf("reload(%s list-raw toggle-history)+wait+pos(%d)", selfBin, pos)
+			pos = stack.CursorPos(ctx, curPane)
 		}
+		fmt.Printf("reload(%s list-raw %s)+change-header(%s)+wait+pos(%d)", selfBin, targetMode, header, pos)
 		return nil
 
 	default:
-		return fmt.Errorf("unknown command: %s\nusage: glance-engine {status|scan|on-focus|add|remove|toggle-vigil|is-watched|list-raw|record-jump|shift-to|jump-back|jump-forward|next-attention|prev-attention|jump-slot|assign-slot|unassign-slot|query-slot|clear-history|history-cursor-pos|eval-history-action}", cmd)
+		return fmt.Errorf("unknown command: %s\nusage: glance-engine {status|scan|on-focus|add|remove|toggle-vigil|is-watched|list-raw|mode-header|record-jump|shift-to|jump-back|jump-forward|next-attention|prev-attention|jump-slot|assign-slot|unassign-slot|query-slot|clear-history|history-cursor-pos|eval-mode-action}", cmd)
 	}
 }
 
@@ -409,7 +430,7 @@ func listRaw(ctx context.Context, store *state.FileStore, reg *sentinel.Registry
 		curMode = "bots"
 	}
 
-	targetMode := resolveMode(curMode, mode, tc, ctx)
+	targetMode := resolveMode(curMode, mode)
 	tc.SetGlobalOption(ctx, "@glance_mode", targetMode) //nolint:errcheck
 
 	entries, _ := store.ReadAll()
@@ -452,48 +473,37 @@ type funcResolver struct{ fn func(string) string }
 
 func (f funcResolver) Resolve(cmd string) string { return f.fn(cmd) }
 
+// modeHeader returns the dynamic header string for the given viewfinder mode.
+func modeHeader(mode string) string {
+	switch mode {
+	case "all", "global":
+		return "👁️ Global (Ctrl-g: Bots | Ctrl-s: Sessions | Ctrl-h: History | Ctrl-/: Help)"
+	case "sessions":
+		return "👁️ Sessions (Ctrl-p: Pin | Ctrl-g: Global | Ctrl-h: History | Ctrl-/: Help)"
+	case "history":
+		return "👁️ History (Ctrl-x: Clear | Ctrl-g: Global | Ctrl-s: Sessions | Ctrl-/: Help)"
+	default: // "bots", "attention"
+		return "👁️ Bots (Ctrl-g: Global | Ctrl-s: Sessions | Ctrl-h: History | Ctrl-/: Help)"
+	}
+}
+
 // resolveMode computes the target mode from the request and current mode.
-func resolveMode(curMode, req string, tc *tmux.Client, ctx context.Context) string {
+func resolveMode(curMode, req string) string {
 	switch req {
 	case "current":
 		return curMode
-	case "toggle":
-		if curMode == "bots" || curMode == "attention" {
-			return "all"
-		}
+	case "toggle", "toggle-global", "global-toggle":
 		if curMode == "all" {
-			prev, _ := tc.GetGlobalOption(ctx, "@glance_prev_mode")
-			if prev == "attention" {
-				return "attention"
-			}
 			return "bots"
 		}
+		return "all"
+	case "bots", "attention":
 		return "bots"
-	case "bots":
-		return "bots"
-	case "attention":
-		return "attention"
 	case "all", "global":
 		return "all"
-	case "toggle-sessions", "sessions-toggle":
-		if curMode == "sessions" {
-			prev, _ := tc.GetGlobalOption(ctx, "@glance_prev_mode")
-			if prev == "" || prev == "sessions" {
-				prev = "bots"
-			}
-			return prev
-		}
-		tc.SetGlobalOption(ctx, "@glance_prev_mode", curMode) //nolint:errcheck
+	case "sessions", "toggle-sessions", "sessions-toggle":
 		return "sessions"
-	case "toggle-history", "history-toggle":
-		if curMode == "history" {
-			prev, _ := tc.GetGlobalOption(ctx, "@glance_prev_mode")
-			if prev == "" || prev == "history" {
-				prev = "bots"
-			}
-			return prev
-		}
-		tc.SetGlobalOption(ctx, "@glance_prev_mode", curMode) //nolint:errcheck
+	case "history", "toggle-history", "history-toggle":
 		return "history"
 	default:
 		return req
