@@ -292,3 +292,69 @@ func TestCursorPos(t *testing.T) {
 		})
 	}
 }
+
+// TestRecord_MRUDeduplicatesOscillations tests Vim jumplist rule (:help jumplist):
+// rapid ping-ponging between %1 and %2 preserves uniqueness and moves existing
+// entries to the top rather than accumulating duplicate rows.
+func TestRecord_MRUDeduplicatesOscillations(t *testing.T) {
+	t.Parallel()
+	s := newTestStack(t, alwaysAlive())
+	ctx := context.Background()
+
+	// Initial jump from base %D to %1
+	_ = s.Record(ctx, "%D", "%1")
+
+	// Rapidly oscillate between %1 and %2 10 times
+	for i := 0; i < 10; i++ {
+		_ = s.Record(ctx, "%1", "%2")
+		_ = s.Record(ctx, "%2", "%1")
+	}
+
+	// At %1, the back stack should only contain [%2, %D] (exactly 2 unique entries, in MRU order)
+	back, _ := readStack(s.backFile)
+	if len(back) != 2 {
+		t.Fatalf("expected back stack length 2, got %d: %v", len(back), back)
+	}
+	if back[0] != "%2" || back[1] != "%D" {
+		t.Errorf("expected back stack [%%2, %%D], got %v", back)
+	}
+}
+
+// TestBack_TraversesDistinctPanesWithoutOscillation tests that repeatedly
+// calling Back traverses across distinct workspaces rather than getting trapped
+// in a 2-pane oscillation.
+func TestBack_TraversesDistinctPanesWithoutOscillation(t *testing.T) {
+	t.Parallel()
+	s := newTestStack(t, alwaysAlive())
+	ctx := context.Background()
+
+	// Jump history: %base -> %1 <-> %2 oscillation -> currently on %1
+	_ = s.Record(ctx, "%base", "%1")
+	_ = s.Record(ctx, "%1", "%2")
+	_ = s.Record(ctx, "%2", "%1")
+
+	// Back from %1: should jump to %2
+	t1, err := s.Back(ctx, "%1")
+	if err != nil || t1 != "%2" {
+		t.Fatalf("step 1: expected jump to %%2, got %q (err: %v)", t1, err)
+	}
+
+	// Back from %2: should jump to %base (NOT oscillate back to %1!)
+	t2, err := s.Back(ctx, "%2")
+	if err != nil || t2 != "%base" {
+		t.Fatalf("step 2: expected jump to %%base, got %q (err: %v)", t2, err)
+	}
+
+	// Forward from %base: should jump back to %2
+	f1, err := s.Forward(ctx, "%base")
+	if err != nil || f1 != "%2" {
+		t.Fatalf("redo 1: expected jump to %%2, got %q (err: %v)", f1, err)
+	}
+
+	// Forward from %2: should jump back to %1
+	f2, err := s.Forward(ctx, "%2")
+	if err != nil || f2 != "%1" {
+		t.Fatalf("redo 2: expected jump to %%1, got %q (err: %v)", f2, err)
+	}
+}
+

@@ -87,6 +87,22 @@ else
     exit 1
 fi
 
+# 5b. Vim Jumplist MRU: rapid oscillations maintain unique panes in MRU order
+echo -n "Test 5b: Rapid ping-pong oscillations maintain unique panes in MRU order... "
+for _ in $(seq 1 10); do
+    glance_run record-jump "$pane3" "$pane2"
+    glance_run record-jump "$pane2" "$pane3"
+done
+count=$(wc -l < "$TMUX_GLANCE_JUMP_BACK_FILE" | tr -d ' ')
+l1=$(sed -n '1p' "$TMUX_GLANCE_JUMP_BACK_FILE")
+l2=$(sed -n '2p' "$TMUX_GLANCE_JUMP_BACK_FILE")
+if [[ "$count" -eq 2 && "$l1" == "$pane2" && "$l2" == "$pane1" ]]; then
+    echo "PASS (Stack bounded to [$pane2, $pane1])"
+else
+    echo "FAIL: Expected count 2 with [$pane2, $pane1], got count $count: [$(cat "$TMUX_GLANCE_JUMP_BACK_FILE")]"
+    exit 1
+fi
+
 # 6. Same source and dest is a no-op
 echo -n "Test 6: Same source and destination jump is a no-op... "
 glance_run record-jump "$pane3" "$pane3"

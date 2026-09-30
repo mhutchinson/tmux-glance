@@ -54,6 +54,10 @@ func New(backFile, forwardFile string, verifyFn VerifyFn) (*Stack, error) {
 // Record pushes source onto the back stack and clears the forward stack.
 // Called on every new forward jump (Go-To, Attention Hub, Harpoon slot).
 // source == dest is a no-op; dead source panes are also no-ops.
+//
+// Matches Vim's jumplist rule (:help jumplist): if source or dest already
+// exists in the back stack, older occurrences are removed, ensuring all
+// entries in the stack represent distinct workspaces (no ping-pong loops).
 func (s *Stack) Record(ctx context.Context, source, dest string) error {
 	if source == "" || dest == "" || source == dest {
 		return nil
@@ -65,9 +69,12 @@ func (s *Stack) Record(ctx context.Context, source, dest string) error {
 	if err != nil {
 		return err
 	}
-	if len(back) == 0 || back[0] != source {
-		back = prepend(back, source)
-	}
+
+	// Remove source and dest from back stack (Vim jumplist move-to-top / CUR extraction).
+	back = removeFromSlice(back, source)
+	back = removeFromSlice(back, dest)
+	back = prepend(back, source)
+
 	if err := writeStack(s.backFile, back); err != nil {
 		return err
 	}
@@ -93,9 +100,8 @@ func (s *Stack) Back(ctx context.Context, currentPane string) (string, error) {
 	}
 	if currentPane != "" {
 		fwd, _ := readStack(s.forwardFile)
-		if len(fwd) == 0 || fwd[0] != currentPane {
-			fwd = prepend(fwd, currentPane)
-		}
+		fwd = removeFromSlice(fwd, currentPane)
+		fwd = prepend(fwd, currentPane)
 		writeStack(s.forwardFile, fwd) //nolint:errcheck
 	}
 	return target, nil
@@ -120,9 +126,8 @@ func (s *Stack) Forward(ctx context.Context, currentPane string) (string, error)
 	}
 	if currentPane != "" {
 		back, _ := readStack(s.backFile)
-		if len(back) == 0 || back[0] != currentPane {
-			back = prepend(back, currentPane)
-		}
+		back = removeFromSlice(back, currentPane)
+		back = prepend(back, currentPane)
 		writeStack(s.backFile, back) //nolint:errcheck
 	}
 	return target, nil
@@ -176,8 +181,8 @@ func (s *Stack) ShiftTo(ctx context.Context, currentPane, target string, dir ...
 			if len(newFwd) > maxStack {
 				newFwd = newFwd[:maxStack]
 			}
-			writeStack(s.forwardFile, dedupConsecutive(newFwd)) //nolint:errcheck
-			return writeStack(s.backFile, dedupConsecutive(newBack))
+			writeStack(s.forwardFile, dedupAll(newFwd)) //nolint:errcheck
+			return writeStack(s.backFile, dedupAll(newBack))
 		}
 	}
 
@@ -209,8 +214,8 @@ func (s *Stack) ShiftTo(ctx context.Context, currentPane, target string, dir ...
 			if len(newFwd) > maxStack {
 				newFwd = newFwd[:maxStack]
 			}
-			writeStack(s.forwardFile, dedupConsecutive(newFwd)) //nolint:errcheck
-			return writeStack(s.backFile, dedupConsecutive(newBack))
+			writeStack(s.forwardFile, dedupAll(newFwd)) //nolint:errcheck
+			return writeStack(s.backFile, dedupAll(newBack))
 		}
 	}
 
@@ -227,18 +232,31 @@ func contains(stack []string, target string) bool {
 	return false
 }
 
-func dedupConsecutive(stack []string) []string {
+func removeFromSlice(slice []string, target string) []string {
+	if len(slice) == 0 || target == "" {
+		return slice
+	}
+	res := make([]string, 0, len(slice))
+	for _, id := range slice {
+		if id != "" && id != target {
+			res = append(res, id)
+		}
+	}
+	return res
+}
+
+func dedupAll(stack []string) []string {
 	if len(stack) <= 1 {
 		return stack
 	}
+	seen := make(map[string]bool, len(stack))
 	res := make([]string, 0, len(stack))
 	for _, id := range stack {
-		if id == "" {
+		if id == "" || seen[id] {
 			continue
 		}
-		if len(res) == 0 || res[len(res)-1] != id {
-			res = append(res, id)
-		}
+		seen[id] = true
+		res = append(res, id)
 	}
 	return res
 }
@@ -256,17 +274,23 @@ func (s *Stack) Clear() error {
 //   - cur: the current pane ID
 //   - back: back entries (BACK #1 is nearest CUR, so back[0] = BACK #1)
 //
-// Dead panes are filtered out.
+// Dead panes and duplicate entries are filtered out.
 func (s *Stack) HistoryList(ctx context.Context, currentPane string) (fwd []string, cur string, back []string) {
 	rawFwd, _ := readStack(s.forwardFile)
 	rawBack, _ := readStack(s.backFile)
+	seen := make(map[string]bool)
+	if currentPane != "" {
+		seen[currentPane] = true
+	}
 	for _, id := range rawFwd {
-		if id != currentPane && s.verifyFn(ctx, id) {
+		if !seen[id] && s.verifyFn(ctx, id) {
+			seen[id] = true
 			fwd = append(fwd, id)
 		}
 	}
 	for _, id := range rawBack {
-		if id != currentPane && s.verifyFn(ctx, id) {
+		if !seen[id] && s.verifyFn(ctx, id) {
+			seen[id] = true
 			back = append(back, id)
 		}
 	}
