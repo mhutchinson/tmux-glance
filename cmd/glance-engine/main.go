@@ -86,7 +86,11 @@ func run(ctx context.Context, args []string) error {
 	}
 
 	cooldownSecs, _ := strconv.Atoi(envOrTmux(ctx, tmuxClient, "TMUX_GLANCE_SCAN_COOLDOWN", "@glance_scan_cooldown", "3"))
-	sc := scanner.New(store, reg, tmuxClient, time.Duration(cooldownSecs)*time.Second)
+	dwellMs, _ := strconv.Atoi(envOrTmux(ctx, tmuxClient, "TMUX_GLANCE_DWELL_MS", "@glance_dwell_ms", "500"))
+	if dwellMs < 0 {
+		dwellMs = 500
+	}
+	sc := scanner.New(store, reg, tmuxClient, time.Duration(cooldownSecs)*time.Second, time.Duration(dwellMs)*time.Millisecond)
 
 	cmd := args[0]
 	rest := args[1:]
@@ -204,7 +208,7 @@ func run(ctx context.Context, args []string) error {
 				tmuxClient.DisplayMessage(ctx, "Jump list: at oldest location") //nolint:errcheck
 				return nil
 			}
-			return selectAndFocus(ctx, target, sc, tmuxClient)
+			return selectAndFocus(ctx, target, tmuxClient)
 		})
 
 	case "jump-forward", "redo":
@@ -224,7 +228,7 @@ func run(ctx context.Context, args []string) error {
 				tmuxClient.DisplayMessage(ctx, "Jump list: at newest location") //nolint:errcheck
 				return nil
 			}
-			return selectAndFocus(ctx, target, sc, tmuxClient)
+			return selectAndFocus(ctx, target, tmuxClient)
 		})
 
 	case "next-attention", "cnext":
@@ -544,12 +548,11 @@ func jumpSlot(ctx context.Context, slotStore *slots.Store, stack *jumplist.Stack
 	return tc.SwitchClient(ctx, session)
 }
 
-// selectAndFocus selects a pane and triggers on-focus logic.
-func selectAndFocus(ctx context.Context, paneID string, sc *scanner.Scanner, tc *tmux.Client) error {
+// selectAndFocus selects a pane for navigation (e.g. jumplist or quickfix).
+// Auto-acknowledgment is handled asynchronously by tmux's pane-focus-in hook
+// after dwell time expires, preserving the whiz-past invariant.
+func selectAndFocus(ctx context.Context, paneID string, tc *tmux.Client) error {
 	tc.SelectPane(ctx, paneID) //nolint:errcheck
-	if err := sc.OnFocus(ctx, paneID); err != nil {
-		return err
-	}
 	loc, _ := tc.GetPaneField(ctx, paneID, "#{session_name}:#{window_index}.#{pane_index}")
 	tc.DisplayMessage(ctx, fmt.Sprintf("Jumped to [%s]", loc)) //nolint:errcheck
 	return nil

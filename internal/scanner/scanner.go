@@ -19,24 +19,29 @@ import (
 )
 
 const (
-	defaultCooldown = 3 * time.Second
-	workerPoolSize  = 8
+	defaultCooldown  = 3 * time.Second
+	defaultDwellTime = 500 * time.Millisecond
+	workerPoolSize   = 8
 )
 
 // Scanner orchestrates pane scanning and state updates.
 type Scanner struct {
-	store    *state.FileStore
-	sentinel *sentinel.Registry
-	tmux     *tmux.Client
-	cooldown time.Duration
+	store     *state.FileStore
+	sentinel  *sentinel.Registry
+	tmux      *tmux.Client
+	cooldown  time.Duration
+	dwellTime time.Duration
 }
 
 // New returns a Scanner ready to scan.
-func New(store *state.FileStore, reg *sentinel.Registry, client *tmux.Client, cooldown time.Duration) *Scanner {
-	if cooldown == 0 {
+func New(store *state.FileStore, reg *sentinel.Registry, client *tmux.Client, cooldown, dwell time.Duration) *Scanner {
+	if cooldown <= 0 {
 		cooldown = defaultCooldown
 	}
-	return &Scanner{store: store, sentinel: reg, tmux: client, cooldown: cooldown}
+	if dwell < 0 {
+		dwell = defaultDwellTime
+	}
+	return &Scanner{store: store, sentinel: reg, tmux: client, cooldown: cooldown, dwellTime: dwell}
 }
 
 // paneResult is the outcome of evaluating a single candidate pane.
@@ -148,7 +153,7 @@ func (sc *Scanner) Scan(ctx context.Context, force bool) error {
 }
 
 // OnFocus handles a pane-focus-in event, auto-acknowledging completed tasks
-// and syncing agent snapshots.
+// and alerts after dwell time expires, and syncing agent snapshots.
 func (sc *Scanner) OnFocus(ctx context.Context, paneID string) error {
 	if paneID == "" {
 		paneID, _ = sc.tmux.GetPaneField(ctx, "", "#{pane_id}")
@@ -162,17 +167,55 @@ func (sc *Scanner) OnFocus(ctx context.Context, paneID string) error {
 		return err
 	}
 
+	cmd, _ := sc.tmux.GetPaneField(ctx, paneID, "#{pane_current_command}")
+	pidStr, _ := sc.tmux.GetPaneField(ctx, paneID, "#{pane_pid}")
+	pid, _ := strconv.Atoi(pidStr)
+	sentName := sc.sentinel.ResolvePane(ctx, tmux.PaneInfo{ID: paneID, Command: cmd, PID: pid})
+
+	// If pane is untracked and not an agent, there is no alert to acknowledge
+	// and no agent snapshot to sync. Skip immediately in 0ms without dwelling.
+	if !found && sentName == "generic" {
+		return nil
+	}
+
+	// Dwell-Time Auto-Ack Protection:
+	// If dwellTime > 0, wait for the dwell duration and verify that the pane
+	// is still focused before auto-acknowledging. Rapid navigation whizzing past
+	// suppresses auto-acknowledgment so alerts remain intact in the queue.
+	if sc.dwellTime > 0 {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(sc.dwellTime):
+		}
+
+		focusedIDs, _ := sc.tmux.FocusedPaneIDs(ctx)
+		stillFocused := false
+		for _, id := range focusedIDs {
+			if id == paneID {
+				stillFocused = true
+				break
+			}
+		}
+		if !stillFocused {
+			// Whizzed past; suppress auto-acknowledgment.
+			return nil
+		}
+	}
+
+	// Re-fetch entry in case background state changed during dwellTime.
+	if updatedEntry, updatedFound, err := sc.store.GetEntry(paneID); err == nil {
+		entry = updatedEntry
+		found = updatedFound
+	}
+
 	if found {
 		switch entry.Kind {
 		case state.KindAuto:
-			if entry.State == state.StateDone {
+			if entry.State == state.StateDone || entry.State == state.StateWaiting {
 				sc.store.RemoveEntry(paneID) //nolint:errcheck
 				sc.tmux.RefreshClients(ctx)  //nolint:errcheck
 			} else {
-				cmd, _ := sc.tmux.GetPaneField(ctx, paneID, "#{pane_current_command}")
-				pidStr, _ := sc.tmux.GetPaneField(ctx, paneID, "#{pane_pid}")
-				pid, _ := strconv.Atoi(pidStr)
-				sentName := sc.sentinel.ResolvePane(ctx, tmux.PaneInfo{ID: paneID, Command: cmd, PID: pid})
 				if sentName != "generic" {
 					path, _ := sc.tmux.GetPaneField(ctx, paneID, "#{pane_current_path}")
 					cls, err := sc.sentinel.Classify(ctx, sentName, paneID, path, cmd)
@@ -193,22 +236,13 @@ func (sc *Scanner) OnFocus(ctx context.Context, paneID string) error {
 	}
 
 	// Always sync agent snapshot on focus if the pane runs an agent.
-	cmd, _ := sc.tmux.GetPaneField(ctx, paneID, "#{pane_current_command}")
-	pidStr, _ := sc.tmux.GetPaneField(ctx, paneID, "#{pane_pid}")
-	pid, _ := strconv.Atoi(pidStr)
-	sentName := sc.sentinel.ResolvePane(ctx, tmux.PaneInfo{ID: paneID, Command: cmd, PID: pid})
 	if sentName != "generic" {
 		hash, _ := sc.sentinel.Fingerprint(ctx, sentName, paneID)
 		sc.tmux.SetPaneOption(ctx, paneID, "@glance_agent_snapshot", hash) //nolint:errcheck
 	}
 
 	// Invalidate scan cooldown so the next status poll sees fresh state.
-	// Skip for untracked generic panes (e.g. the glance popup pane running fzf):
-	// those focus events carry no meaningful state change and resetting the
-	// cooldown would force a spurious full rescan on every popup open/close.
-	if found || sentName != "generic" {
-		sc.tmux.SetGlobalOption(ctx, "@glance_last_scan_time", "0") //nolint:errcheck
-	}
+	sc.tmux.SetGlobalOption(ctx, "@glance_last_scan_time", "0") //nolint:errcheck
 	return nil
 }
 

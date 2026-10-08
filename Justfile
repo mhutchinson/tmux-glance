@@ -44,6 +44,7 @@ live: go-build
     @tmux bind-key -r '>' run-shell "$PWD/bin/tmux-glance jump-forward"
     @tmux bind-key -r '}' run-shell "$PWD/bin/tmux-glance next-attention"
     @tmux bind-key -r '{' run-shell "$PWD/bin/tmux-glance prev-attention"
+    @tmux set-hook -g pane-focus-in "run-shell -b '$PWD/bin/tmux-glance on-focus #{pane_id}'"
     @echo "⚡ Live dev mode active: running tmux bindings now point directly to $PWD/bin/tmux-glance"
 
 
