@@ -8,7 +8,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mhutchinson/tmux-glance/internal/sentinel"
 	"github.com/mhutchinson/tmux-glance/internal/state"
+	"github.com/mhutchinson/tmux-glance/internal/tmux"
 )
 
 // --- State-based unit tests for scanner logic ---
