@@ -360,10 +360,3 @@ func badgeAndPrio(e state.Entry) (badge string, prio int) {
 type SentinelResolver interface {
 	Resolve(cmd string) string
 }
-
-// resolverAdapter adapts sentinel.Registry (which takes a context) for the formatter.
-type resolverAdapter struct {
-	resolve func(cmd string) string
-}
-
-func (r resolverAdapter) Resolve(cmd string) string { return r.resolve(cmd) }
