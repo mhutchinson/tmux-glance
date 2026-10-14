@@ -137,9 +137,10 @@ When command names are generic wrappers (e.g. `cli`, `agent`, `run`), `Matches(p
 #### 1. `sentinel-antigravity`
 * **Matcher:** `cmd =~ ^(agy|antigravity)$`
 * **Classification:**
-  * `WAITING`: Detects interactive permission prompts, subagent approval requests, and blocked tool execution (`needs approval`, `ctrl+y approve`, `Blocked ·`, `Requesting permission for`, `Run this command?`, `Navigate · tab Amend`, `1. Yes, run command`, `(y/n)`).
-  * `RUNNING`: Detects active execution (`esc to cancel`).
-  * `IDLE`: Detects resting prompt (`? for shortcuts`). Note that `WAITING` cues take precedence over `IDLE`, as the footer resting prompt (`? for shortcuts`) remains visible while subagents are blocked waiting for approval.
+  * `WAITING`: Detects interactive permission prompts, subagent approval requests, and blocked tool execution (`needs approval`, `ctrl+y approve`, `Blocked ·`, `Requesting permission for`, `Run this command?`, `Navigate · tab Amend`, `1. Yes, run command`, `(y/n)`). Represents states awaiting user input.
+  * `RUNNING`: Detects active tool execution (`esc to cancel`) as well as active background subagents (`● Agent(...)`).
+    * *Nuance (Subagent in flight vs. Foreground execution):* Unlike foreground execution where terminal input is blocked until cancellation/completion, background subagent execution leaves the parent prompt at rest (`>`), meaning the pane can still accept user input. While this could eventually warrant a dedicated state and icon (e.g. `🤖 🔀` subagent-running), classifying it as `RUNNING` for now prevents premature `done` / unread activity alerts while work is actively in flight.
+  * `IDLE`: Detects resting prompt (`? for shortcuts`). Note that `WAITING` and `RUNNING` (active subagents) cues take precedence over `IDLE`, as the resting prompt (`? for shortcuts`) remains visible while subagents are running or blocked.
 * **Thinking Spinner Normalizer:**
   Antigravity streams thoughts and animates braille spinners (`[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏⣾⣽⣻⢿⡿⣟⣯⣷]`) in-place during thinking blocks. The normalizer strips these lines before hashing:
   ```go
