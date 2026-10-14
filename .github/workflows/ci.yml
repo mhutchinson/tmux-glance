@@ -6,10 +6,76 @@ on:
   pull_request:
     branches: [ main ]
 
+permissions:
+  contents: read
+
 jobs:
-  nix-check:
-    name: Nix Flake Check & Build
+  go-test:
+    name: Go Test & Race (${{ matrix.os }})
     strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-latest, macos-latest ]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run Go tests with race detector
+        run: go test -race -v ./...
+
+  golangci-lint:
+    name: Go Linter (golangci-lint)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v8
+        with:
+          version: v2.1.6
+          args: --timeout=5m
+
+  govulncheck:
+    name: Vulnerability Check (govulncheck)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run govulncheck
+        uses: golang/govulncheck-action@v1
+        with:
+          go-version-file: go.mod
+          go-package: ./...
+
+  shellcheck:
+    name: ShellCheck Linter
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run ShellCheck
+        uses: ludeeus/action-shellcheck@master
+        with:
+          scandir: './bin ./tests .'
+          ignore_paths: './nix'
+
+  nix-check:
+    name: Nix Flake Check & Build (${{ matrix.os }})
+    strategy:
+      fail-fast: false
       matrix:
         os: [ ubuntu-latest, macos-latest ]
     runs-on: ${{ matrix.os }}
@@ -30,16 +96,3 @@ jobs:
 
       - name: Build Package
         run: nix build .#tmux-glance
-
-  shellcheck:
-    name: ShellCheck Linter
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Run ShellCheck
-        uses: ludeeus/action-shellcheck@master
-        with:
-          scandir: './bin ./tests'
-          ignore_paths: './nix'

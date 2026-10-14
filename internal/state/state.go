@@ -105,7 +105,9 @@ func NewFileStore(path string) (*FileStore, error) {
 	if err != nil {
 		return nil, fmt.Errorf("touching state file: %w", err)
 	}
-	f.Close()
+	if err := f.Close(); err != nil {
+		return nil, fmt.Errorf("closing state file: %w", err)
+	}
 	return &FileStore{path: path}, nil
 }
 
@@ -157,7 +159,7 @@ func (s *FileStore) write(entries []Entry) error {
 	}
 	tmp := f.Name()
 	if _, err := f.WriteString(sb.String()); err != nil {
-		f.Close()
+		_ = f.Close()
 		os.Remove(tmp) //nolint:errcheck
 		return fmt.Errorf("writing state tmp: %w", err)
 	}

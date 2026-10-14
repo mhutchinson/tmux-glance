@@ -225,7 +225,7 @@ func TestHistoryList_Order(t *testing.T) {
 	if fwdIdx < 0 || curIdx < 0 || bkIdx < 0 {
 		t.Fatalf("expected FWD, CUR, BACK badges:\n%s", out)
 	}
-	if !(fwdIdx < curIdx && curIdx < bkIdx) {
+	if fwdIdx >= curIdx || curIdx >= bkIdx {
 		t.Errorf("expected FWD < CUR < BACK in output order, got positions %d %d %d", fwdIdx, curIdx, bkIdx)
 	}
 }
