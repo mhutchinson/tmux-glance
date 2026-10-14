@@ -37,8 +37,8 @@ tmux bind-key "$hub_key" display-popup -E -w "$popup_width" -h "$popup_height" "
 # Bind Vigil toggle (prefix + v)
 tmux bind-key "$vigil_key" run-shell "$GLANCE_BIN toggle-vigil"
 
-# Hook pane focus changes to auto-acknowledge completed tasks and alerts
-tmux set-hook -g pane-focus-in "run-shell '$GLANCE_BIN on-focus #{pane_id}'"
+# Hook pane focus changes to auto-acknowledge completed tasks and alerts with dwell-time protection
+tmux set-hook -g pane-focus-in "run-shell -b '$GLANCE_BIN on-focus #{pane_id}'"
 
 # Tier 2 Opt-in: Harpoon Session Slots (prefix + C-h, C-j, C-k, C-l)
 enable_harpoon="$(tmux show-option -gqv @glance_enable_harpoon)"

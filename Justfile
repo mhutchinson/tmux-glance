@@ -44,19 +44,39 @@ live: go-build
     @tmux bind-key -r '>' run-shell "$PWD/bin/tmux-glance jump-forward"
     @tmux bind-key -r '}' run-shell "$PWD/bin/tmux-glance next-attention"
     @tmux bind-key -r '{' run-shell "$PWD/bin/tmux-glance prev-attention"
+    @tmux set-hook -g pane-focus-in "run-shell -b '$PWD/bin/tmux-glance on-focus #{pane_id}'"
     @echo "⚡ Live dev mode active: running tmux bindings now point directly to $PWD/bin/tmux-glance"
 
 
-# Run ShellCheck across all scripts
-lint:
+# Run linters (ShellCheck and golangci-lint)
+lint: lint-sh lint-go
+
+# Run ShellCheck across shell scripts
+lint-sh:
     @if command -v shellcheck >/dev/null 2>&1; then \
         shellcheck bin/tmux-glance glance.tmux tests/*.sh; \
     else \
         nix run nixpkgs#shellcheck -- bin/tmux-glance glance.tmux tests/*.sh; \
     fi
 
-# Run all local CI verification steps (lint, go-test, test, check)
-ci: lint go-test test check
+# Run golangci-lint across Go packages
+lint-go:
+    @if command -v golangci-lint >/dev/null 2>&1; then \
+        golangci-lint run; \
+    else \
+        nix run nixpkgs#golangci-lint -- run; \
+    fi
+
+# Run Go vulnerability check
+vulncheck:
+    @if command -v govulncheck >/dev/null 2>&1; then \
+        govulncheck ./...; \
+    else \
+        nix run nixpkgs#govulncheck -- ./...; \
+    fi
+
+# Run all local CI verification steps (lint, vulncheck, go-test, test, check)
+ci: lint vulncheck go-test test check
 
 # List open GitHub pull requests
 gh-prs:
