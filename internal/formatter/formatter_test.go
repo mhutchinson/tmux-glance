@@ -258,3 +258,48 @@ func TestTruncate_RuneWidth(t *testing.T) {
 		t.Errorf("truncate result is not valid UTF-8: %q", got)
 	}
 }
+
+func terminalCellWidth(s string) int {
+	w := 0
+	for _, r := range s {
+		switch r {
+		case '🤖', '⏳', '💤', '🚨', '👁':
+			w += 2
+		case '\ufe0f': // variation selector
+			// 0 width
+		default:
+			w += 1
+		}
+	}
+	return w
+}
+
+func TestAttentionList_UnknownStateBadgeAlignment(t *testing.T) {
+	t.Parallel()
+	entries := []state.Entry{
+		makeEntry("%1", state.KindAuto, state.StateWaiting),
+		makeEntry("%2", state.KindAuto, state.StateUnknown),
+		makeEntry("%3", state.KindAuto, state.StateRunning),
+		makeEntry("%4", state.KindAuto, state.StateDone),
+	}
+	out := AttentionList(entries)
+	lines := nonEmptyLines(out)
+	if len(lines) < 4 {
+		t.Fatalf("expected at least 4 lines, got:\n%s", out)
+	}
+
+	// Verify that the badge prefix before '│' occupies exactly 14 terminal cells across all states,
+	// preventing 'whitespace out of whack' layout distortion when unknown states are encountered.
+	const wantWidth = 14
+	for i, line := range lines {
+		sepIdx := strings.Index(line, "│")
+		if sepIdx < 0 {
+			t.Fatalf("line %d missing '│' column separator: %s", i, line)
+		}
+		badge := line[:sepIdx]
+		gotWidth := terminalCellWidth(badge)
+		if gotWidth != wantWidth {
+			t.Errorf("line %d badge %q cell width = %d, want %d", i, badge, gotWidth, wantWidth)
+		}
+	}
+}

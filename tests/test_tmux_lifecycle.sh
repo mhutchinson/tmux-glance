@@ -95,6 +95,30 @@ else
     exit 1
 fi
 
+# 6b. Whiz-past suppression preserves alert
+echo -n "Test 5b: Rapid whiz-past suppresses alert auto-acknowledgment... "
+tmux -S "$SOCK" select-window -t test-sess:win2
+tmux -S "$SOCK" send-keys -t "$pane1_id" "Secondary build failure detected!" C-m
+tmux -S "$SOCK" run-shell "bash '$BIN' scan force"
+# Call on-focus for pane1 while win2 is focused (simulates whizzing past pane1 to win2)
+tmux -S "$SOCK" run-shell "bash '$BIN' on-focus $pane1_id"
+status_out=$(get_status)
+if [[ "$status_out" =~ 🚨[[:space:]]+1 ]]; then
+    # Now actually dwell on win1 and verify it acknowledges
+    tmux -S "$SOCK" select-window -t test-sess:win1
+    tmux -S "$SOCK" run-shell "bash '$BIN' on-focus $pane1_id"
+    status_out=$(get_status)
+    if [[ "$status_out" =~ 👁️[[:space:]]+1 ]] && ! [[ "$status_out" =~ 🚨 ]]; then
+        echo "PASS (Whiz-past preserved alert; dwelled focus acknowledged)"
+    else
+        echo "FAIL: Expected acknowledged to '👁️ 1' on dwell, got '$status_out'"
+        exit 1
+    fi
+else
+    echo "FAIL: Expected '🚨 1' preserved during whiz-past, got '$status_out'"
+    exit 1
+fi
+
 # 7. Live Preview actively streams pane contents
 echo -n "Test 6: Live preview actively streams pane contents... "
 rm -f "$STATUS_FILE"
@@ -183,6 +207,18 @@ if [[ "$status_out" =~ 🤖[[:space:]]+⏳[[:space:]]+1 ]]; then
     echo "PASS (Upgraded to waiting: $status_out)"
 else
     echo "FAIL: Expected '🤖 ⏳ 1', got '$status_out'"
+    exit 1
+fi
+
+# 11c. Focusing waiting agent pane auto-acknowledges waiting status
+echo -n "Test 10c: Focusing waiting agent auto-acknowledges waiting status after dwell... "
+tmux -S "$SOCK" select-window -t test-sess:win3
+tmux -S "$SOCK" run-shell "bash '$BIN' on-focus $pane3_id"
+status_out=$(get_status)
+if [[ -z "$status_out" ]] || ! [[ "$status_out" =~ ⏳ ]]; then
+    echo "PASS (Waiting status auto-acknowledged upon dwelled focus)"
+else
+    echo "FAIL: Expected waiting status cleared upon dwelled focus, got '$status_out'"
     exit 1
 fi
 

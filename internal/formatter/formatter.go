@@ -348,9 +348,13 @@ func badgeAndPrio(e state.Entry) (badge string, prio int) {
 		case state.StateDone:
 			return "🤖 ✓ Finished ", 3
 		case state.StateRunning:
-			return "🤖 ⚡ Running ", 4
+			return "🤖 ⚡ Running  ", 4
+		case state.StateIdle:
+			return "🤖 💤 Idle    ", 6
+		case state.StateUnknown:
+			return "🤖 ? Unknown  ", 6
 		default:
-			return fmt.Sprintf("🤖 %s      ", e.State), 6
+			return fmt.Sprintf("🤖 %-9s ", truncate(string(e.State), 9)), 6
 		}
 	}
 	return "", 0

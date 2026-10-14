@@ -3,10 +3,14 @@ package scanner
 import (
 	"context"
 	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/mhutchinson/tmux-glance/internal/sentinel"
 	"github.com/mhutchinson/tmux-glance/internal/state"
+	"github.com/mhutchinson/tmux-glance/internal/tmux"
 )
 
 // --- State-based unit tests for scanner logic ---
@@ -208,6 +212,111 @@ func TestOnFocus_GenericPaneSkipsCooldownReset(t *testing.T) {
 	shouldReset = found || sentName != "generic"
 	if !shouldReset {
 		t.Error("untracked agent pane should trigger cooldown reset (sentName!=generic)")
+	}
+}
+
+// fakeExecForScanner implements tmux.Executor for scanner tests.
+type fakeExecForScanner struct {
+	mu        sync.Mutex
+	responses map[string]string
+}
+
+func (f *fakeExecForScanner) Run(_ context.Context, args ...string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	cmd := strings.Join(args, " ")
+	if out, ok := f.responses[cmd]; ok {
+		return out, nil
+	}
+	if len(args) > 0 {
+		if out, ok := f.responses[args[0]]; ok {
+			return out, nil
+		}
+	}
+	return "", nil
+}
+
+func (f *fakeExecForScanner) set(cmd, resp string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.responses[cmd] = resp
+}
+
+func TestOnFocus_DwellTime_AutoAcksWaitingAndAlert(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	store, _ := state.NewFileStore(filepath.Join(dir, "state"))
+
+	// Seed state: %1 is Alert (manual), %2 is Waiting (auto)
+	store.UpsertEntry(state.Entry{ //nolint:errcheck
+		PaneID: "%1", Session: "s", Kind: state.KindManual, State: state.StateAlert,
+	})
+	store.UpsertEntry(state.Entry{ //nolint:errcheck
+		PaneID: "%2", Session: "s", Kind: state.KindAuto, State: state.StateWaiting,
+	})
+
+	exec := &fakeExecForScanner{responses: map[string]string{
+		"display-message -p -t %1 #{pane_current_command}": "bash",
+		"display-message -p -t %1 #{pane_pid}":             "123",
+		"list-clients -F #{pane_id}":                      "%1",
+		"display-message -p -t %2 #{pane_current_command}": "agy",
+		"display-message -p -t %2 #{pane_pid}":             "456",
+		"display-message -p -t %2 #{pane_current_path}":    "/tmp",
+	}}
+	tmuxClient := tmux.New(exec)
+	reg, _ := sentinel.New(nil, nil, nil)
+	sc := New(store, reg, tmuxClient, 3*time.Second, 20*time.Millisecond)
+
+	ctx := context.Background()
+
+	// 1. Dwell on %1: alert auto-acknowledges to watching
+	if err := sc.OnFocus(ctx, "%1"); err != nil {
+		t.Fatalf("OnFocus %%1: %v", err)
+	}
+	e1, found1, _ := store.GetEntry("%1")
+	if !found1 || e1.State != state.StateWatching {
+		t.Errorf("expected %%1 acknowledged to watching, got found=%v state=%v", found1, e1.State)
+	}
+
+	// 2. Dwell on %2: waiting robot auto-acknowledges and is removed
+	exec.set("list-clients -F #{pane_id}", "%2")
+	if err := sc.OnFocus(ctx, "%2"); err != nil {
+		t.Fatalf("OnFocus %%2: %v", err)
+	}
+	_, found2, _ := store.GetEntry("%2")
+	if found2 {
+		t.Errorf("expected %%2 waiting entry to be removed after dwelled focus, but still found")
+	}
+}
+
+func TestOnFocus_WhizPast_PreservesAlert(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	store, _ := state.NewFileStore(filepath.Join(dir, "state"))
+
+	store.UpsertEntry(state.Entry{ //nolint:errcheck
+		PaneID: "%1", Session: "s", Kind: state.KindManual, State: state.StateAlert,
+	})
+
+	exec := &fakeExecForScanner{responses: map[string]string{
+		"display-message -p -t %1 #{pane_current_command}": "bash",
+		"display-message -p -t %1 #{pane_pid}":             "123",
+		// Simulated whiz-past: when dwell timer expires, active pane is %2 instead of %1
+		"list-clients -F #{pane_id}":                      "%2",
+	}}
+	tmuxClient := tmux.New(exec)
+	reg, _ := sentinel.New(nil, nil, nil)
+	sc := New(store, reg, tmuxClient, 3*time.Second, 20*time.Millisecond)
+
+	ctx := context.Background()
+	if err := sc.OnFocus(ctx, "%1"); err != nil {
+		t.Fatalf("OnFocus %%1: %v", err)
+	}
+
+	// Alert MUST be preserved because user whizzed past to %2
+	e1, found1, _ := store.GetEntry("%1")
+	if !found1 || e1.State != state.StateAlert {
+		t.Errorf("expected %%1 alert preserved during whiz-past, got found=%v state=%v", found1, e1.State)
 	}
 }
 

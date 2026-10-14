@@ -25,7 +25,7 @@ As terminal workflows transition from synchronous shell commands to autonomous, 
 3. **Sub-50ms Status Bar Execution Budget:** `tmux-glance status` runs synchronously inside `status-right` on tmux's `status-interval`. It must execute in `< 50ms`. Non-candidate panes (standard shells/compilations without active vigils) are bypassed immediately in O(1) time without capture-pane or hashing subprocesses. Candidate agent panes and vigils are evaluated concurrently across parallel worker subshells, and background scans are debounced via a configurable cooldown threshold (`@glance_scan_cooldown`). All external telemetry (such as API quotas or saturation gauges) must read pre-warmed local cache files written asynchronously out-of-band.
 4. **Pluggable Sentinels:** Agent TUIs and process monitors are decoupled behind a clean, pluggable Sentinel interface (`matches`, `classify`, `fingerprint`), enabling modular support for diverse agents without core multiplexer entanglement.
 5. **Intelligent Thought & Spinner Normalization:** Sentinels strip transient visual noise—such as animated braille spinners (`[⣟⣯⣷]`) and streaming thought indicators—before computing buffer fingerprints, eliminating false-positive unread alarms.
-6. **Zero-Friction Auto-Acknowledgment:** Merely switching focus into an alerted pane acknowledges and clears the alert. (Note: Rapid navigation dwell-time suppression to protect unread alerts while cycling past is scheduled for milestone v0.8 alongside quickfix cycling).
+6. **Zero-Friction Auto-Acknowledgment with Dwell-Time Protection:** Merely switching focus into an alerted pane acknowledges and clears the alert after dwell time expires (configurable via `@glance_dwell_ms`, default 500ms). Rapid navigation whizzing past panes suppresses auto-acknowledgment so alerts remain safely queued.
 7. **Rock-Solid Concurrency & Atomicity:** Atomic directory locking (`.lock` via `mkdir`) and temporary file renames (`mv`) protect state across concurrent tmux status redraws, window switches, and hook triggers.
 8. **Cross-Platform POSIX Portability:** Scripts and tests run seamlessly on Darwin (macOS BSD coreutils, `md5`) and Linux (GNU coreutils, `md5sum`).
 
@@ -137,9 +137,10 @@ When command names are generic wrappers (e.g. `cli`, `agent`, `run`), `Matches(p
 #### 1. `sentinel-antigravity`
 * **Matcher:** `cmd =~ ^(agy|antigravity)$`
 * **Classification:**
-  * `WAITING`: Detects interactive permission prompts, subagent approval requests, and blocked tool execution (`needs approval`, `ctrl+y approve`, `Blocked ·`, `Requesting permission for`, `Run this command?`, `Navigate · tab Amend`, `1. Yes, run command`, `(y/n)`).
-  * `RUNNING`: Detects active execution (`esc to cancel`).
-  * `IDLE`: Detects resting prompt (`? for shortcuts`). Note that `WAITING` cues take precedence over `IDLE`, as the footer resting prompt (`? for shortcuts`) remains visible while subagents are blocked waiting for approval.
+  * `WAITING`: Detects interactive permission prompts, subagent approval requests, and blocked tool execution (`needs approval`, `ctrl+y approve`, `Blocked ·`, `Requesting permission for`, `Run this command?`, `Navigate · tab Amend`, `1. Yes, run command`, `(y/n)`). Represents states awaiting user input.
+  * `RUNNING`: Detects active tool execution (`esc to cancel`) as well as active background subagents (`● Agent(...)`).
+    * *Nuance (Subagent in flight vs. Foreground execution):* Unlike foreground execution where terminal input is blocked until cancellation/completion, background subagent execution leaves the parent prompt at rest (`>`), meaning the pane can still accept user input. While this could eventually warrant a dedicated state and icon (e.g. `🤖 🔀` subagent-running), classifying it as `RUNNING` for now prevents premature `done` / unread activity alerts while work is actively in flight.
+  * `IDLE`: Detects resting prompt (`? for shortcuts`). Note that `WAITING` and `RUNNING` (active subagents) cues take precedence over `IDLE`, as the resting prompt (`? for shortcuts`) remains visible while subagents are running or blocked.
 * **Thinking Spinner Normalizer:**
   Antigravity streams thoughts and animates braille spinners (`[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏⣾⣽⣻⢿⡿⣟⣯⣷]`) in-place during thinking blocks. The normalizer strips these lines before hashing:
   ```go

@@ -102,6 +102,12 @@ in {
       default = 3;
       description = "Cooldown threshold in seconds to debounce background scans when focus is unchanged.";
     };
+
+    dwellMs = mkOption {
+      type = types.int;
+      default = 500;
+      description = "Dwell time in milliseconds before auto-acknowledging alerts on pane focus.";
+    };
   };
 
   config = mkIf cfg.enable {
@@ -120,11 +126,14 @@ in {
       ${optionalString (cfg.scanCooldown != 3) ''
         set -g @glance_scan_cooldown ${toString cfg.scanCooldown}
       ''}
+      ${optionalString (cfg.dwellMs != 500) ''
+        set -g @glance_dwell_ms ${toString cfg.dwellMs}
+      ''}
       bind-key ${cfg.keybindings.glance} display-popup -E -w ${cfg.popup.width} -h ${cfg.popup.height} "${cfg.package}/bin/tmux-glance list-all #{pane_id}"
       bind-key ${cfg.keybindings.hub} display-popup -E -w ${cfg.popup.width} -h ${cfg.popup.height} "${cfg.package}/bin/tmux-glance list hub #{pane_id}"
       bind-key ${cfg.keybindings.vigil} run-shell "${cfg.package}/bin/tmux-glance toggle-vigil"
 
-      set-hook -g pane-focus-in "run-shell '${cfg.package}/bin/tmux-glance on-focus #{pane_id}'"
+      set-hook -g pane-focus-in "run-shell -b '${cfg.package}/bin/tmux-glance on-focus #{pane_id}'"
       ${optionalString cfg.enableHarpoon ''
         bind-key -r C-h run-shell "${cfg.package}/bin/tmux-glance jump-slot h #{pane_id}"
         bind-key -r C-j run-shell "${cfg.package}/bin/tmux-glance jump-slot j #{pane_id}"

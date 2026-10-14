@@ -307,6 +307,9 @@ set -g @glance_enable_quickfix 'on'
 
 # Cooldown threshold in seconds to debounce background scans when focus is unchanged (default: 3)
 set -g @glance_scan_cooldown 3
+
+# Dwell time in milliseconds before auto-acknowledging alerts on pane focus (default: 500)
+set -g @glance_dwell_ms 500
 ```
 
 ---
