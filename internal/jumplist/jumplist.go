@@ -43,7 +43,9 @@ func New(backFile, forwardFile string, verifyFn VerifyFn) (*Stack, error) {
 		if err != nil {
 			return nil, fmt.Errorf("touching jumplist file %s: %w", f, err)
 		}
-		fh.Close()
+		if err := fh.Close(); err != nil {
+			return nil, fmt.Errorf("closing jumplist file %s: %w", f, err)
+		}
 	}
 	if verifyFn == nil {
 		verifyFn = DefaultVerify

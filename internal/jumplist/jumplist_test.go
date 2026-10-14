@@ -212,9 +212,12 @@ func TestShiftTo_DisambiguateDuplicates(t *testing.T) {
 	t.Parallel()
 	s := newTestStack(t, alwaysAlive())
 	ctx := context.Background()
-	// %9 exists in both forward and back stacks
-	writeStack(s.forwardFile, []string{"%9", "%10"})
-	writeStack(s.backFile, []string{"%9", "%1"})
+	if err := writeStack(s.forwardFile, []string{"%9", "%10"}); err != nil {
+		t.Fatalf("writeStack: %v", err)
+	}
+	if err := writeStack(s.backFile, []string{"%9", "%1"}); err != nil {
+		t.Fatalf("writeStack: %v", err)
+	}
 
 	// Shifting forward to %9 should consume from forward, leaving back intact
 	if err := s.ShiftTo(ctx, "%3", "%9", "fwd"); err != nil {

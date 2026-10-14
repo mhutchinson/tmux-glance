@@ -20,11 +20,11 @@ var (
 
 	// Running cues:
 	reEscCancel       = regexp.MustCompile(`esc\s+to\s+cancel`)
-	reSubagentRunning = regexp.MustCompile(`(?m)^\s*●\s+Agent\(.*Running`)
+	reSubagentRunning = regexp.MustCompile(`(?m)^\s*●\s+Agent\([^)]+\)`)
 
 	// Idle cues:
 	reShortcuts = regexp.MustCompile(`\?\s+for\s+shortcuts`)
-	rePromptGtr = regexp.MustCompile(`^\s*>\s*$`)
+	rePrompt    = regexp.MustCompile(`(?m)^\s*>\s*`)
 
 	// Normalizer cues:
 	reSpinnerLine = regexp.MustCompile(`^\s*[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏⣾⣽⣻⢿⡿⣟⣯⣷]\s`)
@@ -110,7 +110,9 @@ func (a *Antigravity) Classify(_ context.Context, pane tmux.PaneInfo, buffer str
 	}
 
 	// 2. Running cues:
-	if reEscCancel.MatchString(lastLine) || reSubagentRunning.MatchString(tailText) {
+	// A) Parent process actively executing (esc to cancel)
+	// B) Background subagent actively running (non-blocked Agent(...) widget)
+	if reEscCancel.MatchString(lastLine) || (reSubagentRunning.MatchString(tailText) && !reSubagentBlocked.MatchString(tailText)) {
 		return Classification{
 			State: "running",
 			Label: fmt.Sprintf("running in %s", filepath.Base(pane.Path)),
@@ -118,7 +120,10 @@ func (a *Antigravity) Classify(_ context.Context, pane tmux.PaneInfo, buffer str
 	}
 
 	// 3. Idle cues:
-	if reShortcuts.MatchString(lastLine) || rePromptGtr.MatchString(lastLine) {
+	// A) Resting shortcuts footer: ? for shortcuts (last line or within tail)
+	// B) Interactive prompt: > (empty or with typed user text, in last line or tail)
+	if reShortcuts.MatchString(lastLine) || rePrompt.MatchString(lastLine) ||
+		reShortcuts.MatchString(tailText) || rePrompt.MatchString(tailText) {
 		return Classification{
 			State: "idle",
 			Label: fmt.Sprintf("idle in %s", filepath.Base(pane.Path)),
@@ -127,7 +132,7 @@ func (a *Antigravity) Classify(_ context.Context, pane tmux.PaneInfo, buffer str
 
 	return Classification{
 		State: "unknown",
-		Label: filepath.Base(pane.Path),
+		Label: fmt.Sprintf("unknown in %s", filepath.Base(pane.Path)),
 	}, nil
 }
 

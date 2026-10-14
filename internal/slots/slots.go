@@ -27,7 +27,9 @@ func NewStore(path string) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("touching slots file: %w", err)
 	}
-	fh.Close()
+	if err := fh.Close(); err != nil {
+		return nil, fmt.Errorf("closing slots file: %w", err)
+	}
 	return &Store{path: path}, nil
 }
 

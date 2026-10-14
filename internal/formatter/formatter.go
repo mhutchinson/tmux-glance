@@ -348,9 +348,13 @@ func badgeAndPrio(e state.Entry) (badge string, prio int) {
 		case state.StateDone:
 			return "🤖 ✓ Finished ", 3
 		case state.StateRunning:
-			return "🤖 ⚡ Running ", 4
+			return "🤖 ⚡ Running  ", 4
+		case state.StateIdle:
+			return "🤖 💤 Idle    ", 6
+		case state.StateUnknown:
+			return "🤖 ? Unknown  ", 6
 		default:
-			return fmt.Sprintf("🤖 %s      ", e.State), 6
+			return fmt.Sprintf("🤖 %-9s ", truncate(string(e.State), 9)), 6
 		}
 	}
 	return "", 0
@@ -360,10 +364,3 @@ func badgeAndPrio(e state.Entry) (badge string, prio int) {
 type SentinelResolver interface {
 	Resolve(cmd string) string
 }
-
-// resolverAdapter adapts sentinel.Registry (which takes a context) for the formatter.
-type resolverAdapter struct {
-	resolve func(cmd string) string
-}
-
-func (r resolverAdapter) Resolve(cmd string) string { return r.resolve(cmd) }
