@@ -121,7 +121,6 @@ func (s *Store) LookupBySession(session string) (string, error) {
 
 // write atomically replaces the slot file.
 func (s *Store) write(m map[Slot]string) error {
-	tmp := fmt.Sprintf("%s.tmp.%d", s.path, os.Getpid())
 	var sb strings.Builder
 	for slot, session := range m {
 		sb.WriteString(slot)
@@ -129,8 +128,19 @@ func (s *Store) write(m map[Slot]string) error {
 		sb.WriteString(session)
 		sb.WriteByte('\n')
 	}
-	if err := os.WriteFile(tmp, []byte(sb.String()), 0o644); err != nil {
+	f, err := os.CreateTemp(filepath.Dir(s.path), filepath.Base(s.path)+".tmp.*")
+	if err != nil {
+		return fmt.Errorf("creating slots tmp: %w", err)
+	}
+	tmp := f.Name()
+	if _, err := f.WriteString(sb.String()); err != nil {
+		_ = f.Close()
+		os.Remove(tmp) //nolint:errcheck
 		return fmt.Errorf("writing slots tmp: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		os.Remove(tmp) //nolint:errcheck
+		return fmt.Errorf("closing slots tmp: %w", err)
 	}
 	if err := os.Rename(tmp, s.path); err != nil {
 		os.Remove(tmp) //nolint:errcheck

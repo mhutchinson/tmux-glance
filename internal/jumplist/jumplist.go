@@ -335,14 +335,24 @@ func writeStack(path string, entries []string) error {
 	if len(entries) > maxStack {
 		entries = entries[:maxStack]
 	}
-	tmp := fmt.Sprintf("%s.tmp.%d", path, os.Getpid())
 	var sb strings.Builder
 	for _, e := range entries {
 		sb.WriteString(e)
 		sb.WriteByte('\n')
 	}
-	if err := os.WriteFile(tmp, []byte(sb.String()), 0o644); err != nil {
+	f, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".tmp.*")
+	if err != nil {
+		return fmt.Errorf("creating stack tmp: %w", err)
+	}
+	tmp := f.Name()
+	if _, err := f.WriteString(sb.String()); err != nil {
+		_ = f.Close()
+		os.Remove(tmp) //nolint:errcheck
 		return fmt.Errorf("writing stack tmp: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		os.Remove(tmp) //nolint:errcheck
+		return fmt.Errorf("closing stack tmp: %w", err)
 	}
 	if err := os.Rename(tmp, path); err != nil {
 		os.Remove(tmp) //nolint:errcheck
