@@ -98,14 +98,14 @@ record-demo:
 
 # Bump tmux-glance input in ~/nix-home and deploy the updated configuration via home-manager
 deploy-nix-home:
-    @if [ ! -d "$$HOME/nix-home" ]; then \
+    @if [ ! -d "$HOME/nix-home" ]; then \
         echo "Error: ~/nix-home directory not found"; \
         exit 1; \
     fi
     @echo "📦 Updating tmux-glance input in ~/nix-home..."
-    @nix flake lock --update-input tmux-glance --flake "$$HOME/nix-home"
+    @nix flake update tmux-glance --flake "$HOME/nix-home"
     @echo "🚀 Deploying home-manager configuration on macOS..."
-    @nix run github:nix-community/home-manager -- switch --flake "$$HOME/nix-home#mhutchinson-mac" -b hm-backup
+    @nix run github:nix-community/home-manager -- switch --flake "$HOME/nix-home#mhutchinson-mac" -b hm-backup
     @echo "✅ Successfully deployed updated tmux-glance to nix-home!"
 
 
