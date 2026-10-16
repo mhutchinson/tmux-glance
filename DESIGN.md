@@ -16,7 +16,7 @@ As terminal workflows transition from synchronous shell commands to autonomous, 
 
 ## 2. Core Philosophy & Architectural Invariants
 
-1. **Glanceable by Default (User-First Domain Clustering):** Ambient status-right cues (`🚨 1`, `👁️ 2`, `🤖 ⏳ 1`, `🤖 ⚡ 2`, `🤖 ✓ 1`) convey server-wide state at the edge of the developer's vision. To put the developer first, manual user vigils (`🚨`, `👁️`) are clustered on the left, followed by autonomous background agents (`🤖 ⏳`, `🤖 ⚡`, `🤖 ✓`) on the right. If the status bar is quiet, zero action is required.
+1. **Glanceable by Default (User-First Domain Clustering & Agent Enclosure):** Ambient status-right cues convey server-wide state at the edge of the developer's vision. To put the developer first, manual user vigils (`🚨 1`, `👁️ 2`) are clustered on the left. Autonomous background agents are enveloped in an elevated capsule with a deduplicated `🤖` domain icon (`🤖 ⏳ 1  ⚡ 2  ✓ 1`), preventing repetitive bot icons. If the status bar is quiet, zero action is required.
 2. **Minimally Invasive by Default:** Designed to drop into mature, existing tmux setups with zero namespace collision.
    * Only registers non-disruptive core bindings by default (`prefix g`, `prefix b`, `prefix v`).
    * Never hijacks standard tmux defaults (especially `prefix [` copy-mode, or `c`, `z`, `n`, `p`).
@@ -87,7 +87,7 @@ flowchart TD
     end
 
     subgraph Presentation
-        Status["Tmux status-right\n'🚨 1  👁️ 1  🤖 ⏳ 1'"]
+        Status["Tmux status-right\n'🚨 1  👁️ 1  🤖 ⏳ 1  ⚡ 2'"]
         Hub["Attention Hub (prefix b)\nAgent tasks & vigils sorted by severity"]
         Fleet["Global Panes (prefix g)\n100% of panes teleporter"]
         Sessions["Sessionizer (prefix s)\nWorkspace switcher + slot badges"]

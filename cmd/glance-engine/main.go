@@ -90,17 +90,35 @@ func run(ctx context.Context, args []string) error {
 	if dwellMs < 0 {
 		dwellMs = 500
 	}
-	sc := scanner.New(store, reg, tmuxClient, time.Duration(cooldownSecs)*time.Second, time.Duration(dwellMs)*time.Millisecond)
+	statusBg := envOrTmux(ctx, tmuxClient, "TMUX_GLANCE_STATUS_BG", "@glance_status_bg", "#313244")
+	statusStyle := envOrTmux(ctx, tmuxClient, "TMUX_GLANCE_STATUS_STYLE", "@glance_status_style", "rounded")
+	sc := scanner.New(store, reg, tmuxClient, time.Duration(cooldownSecs)*time.Second, time.Duration(dwellMs)*time.Millisecond, statusBg, statusStyle)
 
 	cmd := args[0]
 	rest := args[1:]
 
 	switch cmd {
 	case "status":
+		raw := false
+		render := false
+		for _, arg := range rest {
+			if arg == "--raw" || arg == "--tmux" {
+				raw = true
+			}
+			if arg == "--render" || arg == "--ansi" || arg == "-r" {
+				render = true
+			}
+		}
 		return lock.WithLock(ctx, func() error {
 			out, err := sc.StatusSummary(ctx)
 			if err != nil {
 				return err
+			}
+			if !raw && (render || isTerminal(os.Stdout)) {
+				if out != "" {
+					fmt.Println(formatter.RenderANSI(out))
+				}
+				return nil
 			}
 			fmt.Print(out)
 			return nil
@@ -609,4 +627,12 @@ func envOrTmux(ctx context.Context, tc *tmux.Client, envKey, tmuxKey, def string
 		return v
 	}
 	return def
+}
+
+func isTerminal(f *os.File) bool {
+	fi, err := f.Stat()
+	if err != nil {
+		return false
+	}
+	return (fi.Mode() & os.ModeCharDevice) != 0
 }

@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mhutchinson/tmux-glance/internal/formatter"
 	"github.com/mhutchinson/tmux-glance/internal/sentinel"
 	"github.com/mhutchinson/tmux-glance/internal/state"
 	"github.com/mhutchinson/tmux-glance/internal/tmux"
@@ -26,22 +27,40 @@ const (
 
 // Scanner orchestrates pane scanning and state updates.
 type Scanner struct {
-	store     *state.FileStore
-	sentinel  *sentinel.Registry
-	tmux      *tmux.Client
-	cooldown  time.Duration
-	dwellTime time.Duration
+	store       *state.FileStore
+	sentinel    *sentinel.Registry
+	tmux        *tmux.Client
+	cooldown    time.Duration
+	dwellTime   time.Duration
+	statusBg    string
+	statusStyle string
 }
 
-// New returns a Scanner ready to scan.
-func New(store *state.FileStore, reg *sentinel.Registry, client *tmux.Client, cooldown, dwell time.Duration) *Scanner {
+// New returns a Scanner ready to scan. Optional statusOpts provide [statusBg, statusStyle].
+func New(store *state.FileStore, reg *sentinel.Registry, client *tmux.Client, cooldown, dwell time.Duration, statusOpts ...string) *Scanner {
 	if cooldown <= 0 {
 		cooldown = defaultCooldown
 	}
 	if dwell < 0 {
 		dwell = defaultDwellTime
 	}
-	return &Scanner{store: store, sentinel: reg, tmux: client, cooldown: cooldown, dwellTime: dwell}
+	bg := "#313244"
+	style := "rounded"
+	if len(statusOpts) > 0 && statusOpts[0] != "" {
+		bg = statusOpts[0]
+	}
+	if len(statusOpts) > 1 && statusOpts[1] != "" {
+		style = statusOpts[1]
+	}
+	return &Scanner{
+		store:       store,
+		sentinel:    reg,
+		tmux:        client,
+		cooldown:    cooldown,
+		dwellTime:   dwell,
+		statusBg:    bg,
+		statusStyle: style,
+	}
 }
 
 // paneResult is the outcome of evaluating a single candidate pane.
@@ -277,23 +296,7 @@ func (sc *Scanner) StatusSummary(ctx context.Context) (string, error) {
 		}
 	}
 
-	var sb strings.Builder
-	if alerts > 0 {
-		fmt.Fprintf(&sb, "#[fg=#f38ba8,bold]🚨 %d#[default] ", alerts)
-	}
-	if watches > 0 {
-		fmt.Fprintf(&sb, "#[fg=#b4befe]👁️ %d#[default] ", watches)
-	}
-	if waiting > 0 {
-		fmt.Fprintf(&sb, "#[fg=#fab387,bold]🤖 ⏳ %d#[default] ", waiting)
-	}
-	if running > 0 {
-		fmt.Fprintf(&sb, "#[fg=#a6e3a1]🤖 ⚡ %d#[default] ", running)
-	}
-	if done > 0 {
-		fmt.Fprintf(&sb, "#[fg=#89b4fa,bold]🤖 ✓ %d#[default] ", done)
-	}
-	return strings.TrimRight(sb.String(), " "), nil
+	return formatter.FormatStatus(alerts, watches, waiting, running, done, sc.statusBg, sc.statusStyle), nil
 }
 
 // evaluateCandidate classifies a single candidate pane and returns the action to take.

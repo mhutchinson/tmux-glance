@@ -129,8 +129,9 @@ sleep 0.3
 # Force scan to evaluate all candidate agent panes in parallel
 glance_run scan force
 status_out=$(glance_run status)
+clean_status=$(echo "$status_out" | sed -E 's/#\[[^]]*\]//g')
 
-if [[ "$status_out" =~ 🤖[[:space:]]+⏳[[:space:]]+4 ]]; then
+if [[ "$clean_status" =~ 🤖[[:space:]]+⏳[[:space:]]+4 ]]; then
     echo "PASS (All 4 candidates classified concurrently in parallel: $status_out)"
 else
     echo "FAIL: Expected '🤖 ⏳ 4', got '$status_out'"

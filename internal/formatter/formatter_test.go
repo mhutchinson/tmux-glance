@@ -303,3 +303,152 @@ func TestAttentionList_UnknownStateBadgeAlignment(t *testing.T) {
 		}
 	}
 }
+
+func TestFormatStatus(t *testing.T) {
+	t.Parallel()
+
+	t.Run("EmptyAllZero", func(t *testing.T) {
+		got := FormatStatus(0, 0, 0, 0, 0, "", "")
+		if got != "" {
+			t.Errorf("expected empty string, got %q", got)
+		}
+	})
+
+	t.Run("UserAlertAndWatchOnly", func(t *testing.T) {
+		got := FormatStatus(1, 2, 0, 0, 0, "", "")
+		want := "#[fg=#f38ba8,bold]🚨 1#[default] #[fg=#b4befe]👁️ 2#[default]"
+		if got != want {
+			t.Errorf("got %q, want %q", got, want)
+		}
+	})
+
+	t.Run("SingleBotStateRounded", func(t *testing.T) {
+		got := FormatStatus(0, 0, 1, 0, 0, "", "rounded")
+		if !strings.Contains(got, "") || !strings.Contains(got, "") {
+			t.Errorf("expected rounded capsule delimiters, got %q", got)
+		}
+		if !strings.Contains(got, "🤖 #[fg=#fab387,bold]⏳ 1") {
+			t.Errorf("expected waiting badge, got %q", got)
+		}
+		if strings.Count(got, "🤖") != 1 {
+			t.Errorf("expected exactly 1 bot icon, got %d in %q", strings.Count(got, "🤖"), got)
+		}
+	})
+
+	t.Run("MultipleBotStatesDeduplicated", func(t *testing.T) {
+		// Waiting + Running + Done
+		got := FormatStatus(0, 0, 1, 2, 3, "#313244", "rounded")
+		// Verify single '🤖' glyph
+		if strings.Count(got, "🤖") != 1 {
+			t.Errorf("expected bot icon deduplicated to 1 instance, got %d in %q", strings.Count(got, "🤖"), got)
+		}
+		for _, badge := range []string{"⏳ 1", "⚡ 2", "✓ 3"} {
+			if !strings.Contains(got, badge) {
+				t.Errorf("expected badge %q in envelope, got %q", badge, got)
+			}
+		}
+	})
+
+	t.Run("CompositeUserAndBot", func(t *testing.T) {
+		got := FormatStatus(1, 1, 1, 1, 0, "#313244", "rounded")
+		if !strings.HasPrefix(got, "#[fg=#f38ba8,bold]🚨 1#[default] #[fg=#b4befe]👁️ 1#[default] ") {
+			t.Errorf("expected user badges on the left, got %q", got)
+		}
+		if !strings.Contains(got, "🤖") || !strings.Contains(got, "⏳ 1") || !strings.Contains(got, "⚡ 1") {
+			t.Errorf("missing bot components in %q", got)
+		}
+	})
+
+	t.Run("StyleBlock", func(t *testing.T) {
+		got := FormatStatus(0, 0, 1, 1, 0, "#313244", "block")
+		if strings.Contains(got, "") || strings.Contains(got, "") {
+			t.Errorf("block style should not contain nerd font curves, got %q", got)
+		}
+		if !strings.HasPrefix(got, "#[fg=#cdd6f4,bg=#313244] 🤖 ") {
+			t.Errorf("expected block style prefix with space, got %q", got)
+		}
+		if !strings.HasSuffix(got, " #[default]") {
+			t.Errorf("expected block style suffix with space, got %q", got)
+		}
+	})
+
+	t.Run("StyleBracket", func(t *testing.T) {
+		got := FormatStatus(0, 0, 1, 0, 0, "#313244", "bracket")
+		if !strings.Contains(got, "[") || !strings.Contains(got, "]") {
+			t.Errorf("expected bracket delimiters in %q", got)
+		}
+	})
+
+	t.Run("StylePlain", func(t *testing.T) {
+		got := FormatStatus(0, 0, 1, 0, 0, "", "plain")
+		if strings.Contains(got, "bg=") {
+			t.Errorf("plain style should have no background, got %q", got)
+		}
+		if !strings.Contains(got, "🤖 #[fg=#fab387,bold]⏳ 1#[default]") {
+			t.Errorf("expected plain bot badge, got %q", got)
+		}
+	})
+
+	t.Run("CustomBg", func(t *testing.T) {
+		got := FormatStatus(0, 0, 1, 0, 0, "#45475a", "rounded")
+		if !strings.Contains(got, "#45475a") {
+			t.Errorf("expected custom bg color in %q", got)
+		}
+	})
+}
+
+func TestRenderANSI(t *testing.T) {
+	t.Parallel()
+
+	t.Run("Empty", func(t *testing.T) {
+		if got := RenderANSI(""); got != "" {
+			t.Errorf("expected empty string, got %q", got)
+		}
+	})
+
+	t.Run("PlainPassthrough", func(t *testing.T) {
+		got := RenderANSI("hello world")
+		if !strings.HasPrefix(got, "hello world") {
+			t.Errorf("expected plain text passthrough, got %q", got)
+		}
+	})
+
+	t.Run("ConvertsHexColorsAndStyles", func(t *testing.T) {
+		input := "#[fg=#fab387,bold]⏳ 1#[default] #[fg=#a6e3a1,nobold]⚡ 2#[default]"
+		got := RenderANSI(input)
+		// #fab387 -> 250, 179, 135
+		if !strings.Contains(got, "\x1b[38;2;250;179;135m") {
+			t.Errorf("missing fg color for peach in %q", got)
+		}
+		if !strings.Contains(got, "\x1b[1m") {
+			t.Errorf("missing bold in %q", got)
+		}
+		// #a6e3a1 -> 166, 227, 161
+		if !strings.Contains(got, "\x1b[38;2;166;227;161m") {
+			t.Errorf("missing fg color for green in %q", got)
+		}
+		if !strings.Contains(got, "\x1b[22m") {
+			t.Errorf("missing nobold in %q", got)
+		}
+		if !strings.HasSuffix(got, "\x1b[0m") {
+			t.Errorf("missing trailing reset in %q", got)
+		}
+	})
+
+	t.Run("ConvertsBackgroundAndDelimiters", func(t *testing.T) {
+		input := "#[fg=#313244,bg=default]#[fg=#cdd6f4,bg=#313244]🤖 ⏳ 1#[fg=#313244,bg=default]#[default]"
+		got := RenderANSI(input)
+		// bg=#313244 -> 49, 50, 68
+		if !strings.Contains(got, "\x1b[48;2;49;50;68m") {
+			t.Errorf("missing bg color in %q", got)
+		}
+		if !strings.Contains(got, "\x1b[49m") {
+			t.Errorf("missing bg default reset in %q", got)
+		}
+		if !strings.Contains(got, "") || !strings.Contains(got, "") {
+			t.Errorf("missing capsule delimiters in %q", got)
+		}
+	})
+}
+
+

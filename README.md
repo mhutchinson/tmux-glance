@@ -375,6 +375,11 @@ set -g @glance_disabled_sentinels 'claude,aider'
 
 # Command route overrides: <command>=<sentinel>
 set -g @glance_routes 'chat=generic,my-internal-agent=antigravity'
+
+# Ambient status styling:
+# Style options: 'rounded' (default, Nerd Font ...), 'block' (space-padded chip), 'bracket', 'plain'
+set -g @glance_status_style 'rounded'
+set -g @glance_status_bg '#313244'
 ```
 
 ---

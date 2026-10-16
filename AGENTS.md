@@ -41,3 +41,18 @@ just ci
 ```
 
 Never bypass failing tests or commit without running `just ci`.
+
+---
+
+## 4. Downstream Nix Home Manager Deployment Workflow
+
+`tmux-glance` is consumed downstream by personal workstation environments in `~/nix-home` via its flake input (`inputs.tmux-glance.url = "github:mhutchinson/tmux-glance"`).
+
+Whenever shipping features or fixes that should be immediately active on the host machine:
+1. **Push upstream first:** Commit and push changes to `main` on GitHub (`origin`).
+2. **Automated Bump & Deploy:** Run `just deploy-nix-home` from this repository:
+   ```bash
+   just deploy-nix-home
+   ```
+   This automatically updates the `tmux-glance` flake lock in `~/nix-home` and runs `home-manager switch`.
+3. **Commit downstream lockfile:** Commit and push the updated `flake.lock` in `~/nix-home`.

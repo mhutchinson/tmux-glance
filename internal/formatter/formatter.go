@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/mhutchinson/tmux-glance/internal/slots"
@@ -364,3 +365,144 @@ func badgeAndPrio(e state.Entry) (badge string, prio int) {
 type SentinelResolver interface {
 	Resolve(cmd string) string
 }
+
+// FormatStatus formats the ambient status-right badges.
+// Manual vigils/alerts are placed on the left in their standard style.
+// Background agent states are enclosed in an envelope with a subtle elevated
+// background and deduplicated '🤖' container glyph.
+//
+// Supported styles:
+//   - "rounded" (default): Nerd Font half-circle capsule ( ... )
+//   - "block": Standard space-padded background block
+//   - "bracket": Delimited with brackets
+//   - "plain": Unboxed text without background
+func FormatStatus(alerts, watches, waiting, running, done int, bg, style string) string {
+	var userParts []string
+	if alerts > 0 {
+		userParts = append(userParts, fmt.Sprintf("#[fg=#f38ba8,bold]🚨 %d#[default]", alerts))
+	}
+	if watches > 0 {
+		userParts = append(userParts, fmt.Sprintf("#[fg=#b4befe]👁️ %d#[default]", watches))
+	}
+
+	var botParts []string
+	if waiting > 0 {
+		botParts = append(botParts, fmt.Sprintf("#[fg=#fab387,bold]⏳ %d", waiting))
+	}
+	if running > 0 {
+		botParts = append(botParts, fmt.Sprintf("#[fg=#a6e3a1,nobold]⚡ %d", running))
+	}
+	if done > 0 {
+		botParts = append(botParts, fmt.Sprintf("#[fg=#89b4fa,bold]✓ %d", done))
+	}
+
+	var botPill string
+	if len(botParts) > 0 {
+		if bg == "" {
+			bg = "#313244"
+		}
+		if style == "" {
+			style = "rounded"
+		}
+		statesStr := strings.Join(botParts, " ")
+
+		switch style {
+		case "block":
+			botPill = fmt.Sprintf("#[fg=#cdd6f4,bg=%s] 🤖 %s #[default]", bg, statesStr)
+		case "bracket":
+			botPill = fmt.Sprintf("#[fg=#585b70][#[default]#[fg=#cdd6f4,bg=%s] 🤖 %s #[default]#[fg=#585b70]]#[default]", bg, statesStr)
+		case "plain":
+			botPill = fmt.Sprintf("#[fg=#cdd6f4]🤖 %s#[default]", statesStr)
+		default: // "rounded"
+			botPill = fmt.Sprintf("#[fg=%s,bg=default]#[fg=#cdd6f4,bg=%s]🤖 %s#[fg=%s,bg=default,nobold]#[default]", bg, bg, statesStr, bg)
+		}
+	}
+
+	if len(userParts) > 0 && botPill != "" {
+		return strings.Join(userParts, " ") + " " + botPill
+	}
+	if len(userParts) > 0 {
+		return strings.Join(userParts, " ")
+	}
+	return botPill
+}
+
+// RenderANSI converts tmux format directives (e.g. #[fg=#RRGGBB,bg=...,bold])
+// into standard 24-bit ANSI color escape sequences suitable for direct display
+// in terminal emulators.
+func RenderANSI(s string) string {
+	if s == "" {
+		return ""
+	}
+	var sb strings.Builder
+	i := 0
+	for i < len(s) {
+		if strings.HasPrefix(s[i:], "#[") {
+			end := strings.IndexByte(s[i:], ']')
+			if end != -1 {
+				tagContent := s[i+2 : i+end]
+				sb.WriteString(parseTmuxTagToANSI(tagContent))
+				i += end + 1
+				continue
+			}
+		}
+		sb.WriteByte(s[i])
+		i++
+	}
+	// Always reset terminal styling at the end
+	sb.WriteString("\x1b[0m")
+	return sb.String()
+}
+
+func parseTmuxTagToANSI(tag string) string {
+	var sb strings.Builder
+	for _, part := range strings.Split(tag, ",") {
+		part = strings.TrimSpace(part)
+		switch {
+		case part == "default":
+			sb.WriteString("\x1b[0m")
+		case part == "bold":
+			sb.WriteString("\x1b[1m")
+		case part == "nobold":
+			sb.WriteString("\x1b[22m")
+		case part == "dim":
+			sb.WriteString("\x1b[2m")
+		case part == "nodim":
+			sb.WriteString("\x1b[22m")
+		case part == "fg=default":
+			sb.WriteString("\x1b[39m")
+		case part == "bg=default":
+			sb.WriteString("\x1b[49m")
+		case strings.HasPrefix(part, "fg=#") && len(part) == 10:
+			if r, g, b, ok := parseHexRGB(part[4:]); ok {
+				fmt.Fprintf(&sb, "\x1b[38;2;%d;%d;%dm", r, g, b)
+			}
+		case strings.HasPrefix(part, "bg=#") && len(part) == 10:
+			if r, g, b, ok := parseHexRGB(part[4:]); ok {
+				fmt.Fprintf(&sb, "\x1b[48;2;%d;%d;%dm", r, g, b)
+			}
+		case strings.HasPrefix(part, "fg=colour"):
+			if n, err := strconv.Atoi(part[9:]); err == nil {
+				fmt.Fprintf(&sb, "\x1b[38;5;%dm", n)
+			}
+		case strings.HasPrefix(part, "bg=colour"):
+			if n, err := strconv.Atoi(part[9:]); err == nil {
+				fmt.Fprintf(&sb, "\x1b[48;5;%dm", n)
+			}
+		}
+	}
+	return sb.String()
+}
+
+func parseHexRGB(hex string) (uint8, uint8, uint8, bool) {
+	if len(hex) != 6 {
+		return 0, 0, 0, false
+	}
+	v, err := strconv.ParseUint(hex, 16, 32)
+	if err != nil {
+		return 0, 0, 0, false
+	}
+	return uint8((v >> 16) & 0xff), uint8((v >> 8) & 0xff), uint8(v & 0xff), true
+}
+
+

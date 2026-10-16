@@ -108,6 +108,18 @@ in {
       default = 500;
       description = "Dwell time in milliseconds before auto-acknowledging alerts on pane focus.";
     };
+
+    statusStyle = mkOption {
+      type = types.enum [ "rounded" "block" "bracket" "plain" ];
+      default = "rounded";
+      description = "Visual capsule style for agent status badges in status-right: 'rounded' (Nerd Font capsule), 'block' (space-padded background chip), 'bracket', or 'plain'.";
+    };
+
+    statusBg = mkOption {
+      type = types.str;
+      default = "#313244";
+      description = "Background color for the ambient status envelope chip (e.g. '#313244' or 'colour237').";
+    };
   };
 
   config = mkIf cfg.enable {
@@ -128,6 +140,12 @@ in {
       ''}
       ${optionalString (cfg.dwellMs != 500) ''
         set -g @glance_dwell_ms ${toString cfg.dwellMs}
+      ''}
+      ${optionalString (cfg.statusStyle != "rounded") ''
+        set -g @glance_status_style '${cfg.statusStyle}'
+      ''}
+      ${optionalString (cfg.statusBg != "#313244") ''
+        set -g @glance_status_bg '${cfg.statusBg}'
       ''}
       bind-key ${cfg.keybindings.glance} display-popup -E -w ${cfg.popup.width} -h ${cfg.popup.height} "${cfg.package}/bin/tmux-glance list-all #{pane_id}"
       bind-key ${cfg.keybindings.hub} display-popup -E -w ${cfg.popup.width} -h ${cfg.popup.height} "${cfg.package}/bin/tmux-glance list hub #{pane_id}"

@@ -170,7 +170,8 @@ tmux -S "$SOCK" send-keys -t "$pane3_id" "esc to cancel" C-m
 sleep 0.2
 tmux -S "$SOCK" run-shell "bash '$BIN' scan force"
 status_out=$(get_status)
-if [[ "$status_out" =~ 🤖[[:space:]]+⏳[[:space:]]+1 ]]; then
+clean_status=$(echo "$status_out" | sed -E 's/#\[[^]]*\]//g')
+if [[ "$clean_status" =~ 🤖[[:space:]]+⏳[[:space:]]+1 ]]; then
     echo "PASS (Upgraded to waiting: $status_out)"
 else
     echo "FAIL: Expected '🤖 ⏳ 1', got '$status_out'"
@@ -203,7 +204,8 @@ tmux -S "$SOCK" send-keys -t "$pane3_id" "? for shortcuts" C-m
 sleep 0.2
 tmux -S "$SOCK" run-shell "bash '$BIN' scan force"
 status_out=$(get_status)
-if [[ "$status_out" =~ 🤖[[:space:]]+⏳[[:space:]]+1 ]]; then
+clean_status=$(echo "$status_out" | sed -E 's/#\[[^]]*\]//g')
+if [[ "$clean_status" =~ 🤖[[:space:]]+⏳[[:space:]]+1 ]]; then
     echo "PASS (Upgraded to waiting: $status_out)"
 else
     echo "FAIL: Expected '🤖 ⏳ 1', got '$status_out'"
@@ -288,12 +290,12 @@ sleep 0.2
 tmux -S "$SOCK" run-shell "bash '$BIN' scan force"
 
 status_out=$(get_status)
-# Strip ANSI escapes to check order: 🚨 1  👁️ 1  🤖 ⏳ 1  🤖 ⚡ 1
+# Strip ANSI escapes to check order: 🚨 1  👁️ 1  🤖 ⏳ 1  ⚡ 1
 clean_status=$(echo "$status_out" | sed -E 's/#\[[^]]*\]//g')
-if [[ "$clean_status" =~ 🚨[[:space:]]*1.*👁️[[:space:]]*1.*🤖[[:space:]]*⏳[[:space:]]*1.*🤖[[:space:]]*⚡[[:space:]]*1 ]]; then
+if [[ "$clean_status" =~ 🚨[[:space:]]*1.*👁️[[:space:]]*1.*🤖[[:space:]]*⏳[[:space:]]*1.*⚡[[:space:]]*1 ]]; then
     echo "PASS (Composite status: $clean_status)"
 else
-    echo "FAIL: Expected user-first ordering (🚨 -> 👁️ -> 🤖 ⏳ -> 🤖 ⚡), got '$clean_status'"
+    echo "FAIL: Expected user-first ordering (🚨 -> 👁️ -> 🤖 ⏳ -> ⚡), got '$clean_status'"
     exit 1
 fi
 
@@ -314,7 +316,8 @@ tmux -S "$SOCK" select-window -t test-sess:win2
 # When scan runs, cmd is 'cat' (generic) and ps has no agy, so it detects exit -> done
 tmux -S "$SOCK" run-shell "bash '$BIN' scan force"
 status_out=$(get_status)
-if [[ "$status_out" =~ 🤖[[:space:]]+✓[[:space:]]+1 ]]; then
+clean_status=$(echo "$status_out" | sed -E 's/#\[[^]]*\]//g')
+if [[ "$clean_status" =~ 🤖[[:space:]]+✓[[:space:]]+1 ]]; then
     echo "PASS (Detected process exit, status: $status_out)"
 else
     echo "FAIL: Expected '🤖 ✓ 1', got '$status_out'"
