@@ -452,3 +452,95 @@ func TestRenderANSI(t *testing.T) {
 }
 
 
+
+func TestHistoryLine(t *testing.T) {
+	t.Parallel()
+	t.Run("DeadPane", func(t *testing.T) {
+		paneInfo := func(id string) tmux.PaneInfo {
+			return tmux.PaneInfo{}
+		}
+		got := historyLine("BADGE ", "dead_id", paneInfo)
+		if !strings.Contains(got, "[Dead Pane]") {
+			t.Errorf("expected [Dead Pane] for dead pane, got %q", got)
+		}
+		if !strings.Contains(got, "dead_id") {
+			t.Errorf("expected dead_id in output for dead pane, got %q", got)
+		}
+	})
+
+	t.Run("ValidPane", func(t *testing.T) {
+		paneInfo := func(id string) tmux.PaneInfo {
+			return tmux.PaneInfo{
+				ID:      id,
+				Session: "mysess",
+				Window:  1,
+				Pane:    2,
+				Path:    "/path/to/myrepo",
+				Command: "nvim",
+			}
+		}
+		got := historyLine("BADGE ", "alive_id", paneInfo)
+		if !strings.Contains(got, "BADGE") {
+			t.Errorf("expected badge in output, got %q", got)
+		}
+		if !strings.Contains(got, "[mysess:1.2]") {
+			t.Errorf("expected context in output, got %q", got)
+		}
+		if !strings.Contains(got, "myrepo") {
+			t.Errorf("expected repo in output, got %q", got)
+		}
+		if !strings.Contains(got, "alive_id") {
+			t.Errorf("expected pane ID in output, got %q", got)
+		}
+	})
+}
+
+func TestEmptyRow(t *testing.T) {
+	t.Parallel()
+	got := emptyRow("BADGE ", "Nothing to see here")
+	if !strings.Contains(got, "BADGE") {
+		t.Errorf("expected badge in output, got %q", got)
+	}
+	if !strings.Contains(got, "[0:0.0]") {
+		t.Errorf("expected context in output, got %q", got)
+	}
+	if !strings.Contains(got, "none") {
+		t.Errorf("expected repo 'none' in output, got %q", got)
+	}
+	if !strings.Contains(got, "Nothing to see here") {
+		t.Errorf("expected message in output, got %q", got)
+	}
+}
+
+func TestBadgeAndPrio(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		entry     state.Entry
+		wantBadge string
+		wantPrio  int
+	}{
+		{"Manual Alert", state.Entry{Kind: state.KindManual, State: state.StateAlert}, "🚨 Alert      ", 1},
+		{"Manual Vigil", state.Entry{Kind: state.KindManual, State: state.StateWatching}, "👁️ Vigil      ", 5},
+		{"Auto Waiting", state.Entry{Kind: state.KindAuto, State: state.StateWaiting}, "🤖 ⏳ Waiting ", 2},
+		{"Auto Done", state.Entry{Kind: state.KindAuto, State: state.StateDone}, "🤖 ✓ Finished ", 3},
+		{"Auto Running", state.Entry{Kind: state.KindAuto, State: state.StateRunning}, "🤖 ⚡ Running  ", 4},
+		{"Auto Idle", state.Entry{Kind: state.KindAuto, State: state.StateIdle}, "🤖 💤 Idle    ", 6},
+		{"Auto Unknown", state.Entry{Kind: state.KindAuto, State: state.StateUnknown}, "🤖 ? Unknown  ", 6},
+		{"Auto Custom", state.Entry{Kind: state.KindAuto, State: state.PaneState("custom")}, "🤖 custom    ", 6},
+		{"Unknown Kind", state.Entry{Kind: state.Kind("unknown")}, "", 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotBadge, gotPrio := badgeAndPrio(tt.entry)
+			if gotBadge != tt.wantBadge {
+				t.Errorf("badgeAndPrio() gotBadge = %q, want %q", gotBadge, tt.wantBadge)
+			}
+			if gotPrio != tt.wantPrio {
+				t.Errorf("badgeAndPrio() gotPrio = %v, want %v", gotPrio, tt.wantPrio)
+			}
+		})
+	}
+}
