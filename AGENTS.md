@@ -27,6 +27,7 @@ Before editing code or writing tests, verify your plan against these hard archit
 * [ ] **Atomic Concurrency:** All state modifications must use directory locking (`acquire_lock` via `mkdir`) and atomic file moves (`mv`).
 * [ ] **Viewfinder Pinning:** Live preview windows must specify `--preview-window='down:60%:wrap:follow'` to remain locked to the bottom line (active prompt / compiler output).
 * [ ] **Strictly GitHub-Only:** Hosted exclusively at `github.com/mhutchinson/tmux-glance`. Never configure or push to internal Gitea (`nase.aquarium`) remotes.
+* [ ] **Strict Open-Source Hygiene:** This repository is public open-source software. Never hardcode personal workstation paths (e.g. personal dotfile repos like `nix-home`), personal usernames, machine profiles, or private fleet details in repository scripts, documentation, or workflows. Downstream deployment and machine-specific integration belongs strictly out-of-tree (e.g. in dotfile repositories or private project memory notes).
 * [ ] **POSIX & Dual-OS Portability:** Scripts must run portably on macOS (BSD `md5`) and Linux (GNU `md5sum`).
 
 ---
@@ -42,17 +43,3 @@ just ci
 
 Never bypass failing tests or commit without running `just ci`.
 
----
-
-## 4. Downstream Nix Home Manager Deployment Workflow
-
-`tmux-glance` is consumed downstream by personal workstation environments in `~/nix-home` via its flake input (`inputs.tmux-glance.url = "github:mhutchinson/tmux-glance"`).
-
-Whenever shipping features or fixes that should be immediately active on the host machine:
-1. **Push upstream first:** Commit and push changes to `main` on GitHub (`origin`).
-2. **Automated Bump & Deploy:** Run `just deploy-nix-home` from this repository:
-   ```bash
-   just deploy-nix-home
-   ```
-   This automatically updates the `tmux-glance` flake lock in `~/nix-home` and runs `home-manager switch`.
-3. **Commit downstream lockfile:** Commit and push the updated `flake.lock` in `~/nix-home`.
