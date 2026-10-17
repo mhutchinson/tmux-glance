@@ -28,6 +28,7 @@ Before editing code or writing tests, verify your plan against these hard archit
 * [ ] **Viewfinder Pinning:** Live preview windows must specify `--preview-window='down:60%:wrap:follow'` to remain locked to the bottom line (active prompt / compiler output).
 * [ ] **Strictly GitHub-Only:** Hosted exclusively at `github.com/mhutchinson/tmux-glance`. Never configure or push to internal Gitea (`nase.aquarium`) remotes.
 * [ ] **Strict Open-Source Hygiene:** This repository is public open-source software. Never hardcode personal workstation paths (e.g. personal dotfile repos like `nix-home`), personal usernames, machine profiles, or private fleet details in repository scripts, documentation, or workflows. Downstream deployment and machine-specific integration belongs strictly out-of-tree (e.g. in dotfile repositories or private project memory notes).
+* [ ] **Efficient CI & In-Job Gating:** CI workflows in `.github/workflows/ci.yml` enforce in-job smart path filtering (`skills/efficient-ci/SKILL.md`). Documentation-only changes (`*.md`, `docs/`, `LICENSE`) must complete all required status check jobs in seconds without running expensive compilers, Go race tests, or Nix sandbox checks.
 * [ ] **POSIX & Dual-OS Portability:** Scripts must run portably on macOS (BSD `md5`) and Linux (GNU `md5sum`).
 
 ---
