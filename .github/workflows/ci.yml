@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [ main ]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 permissions:
   contents: read
 
@@ -20,14 +24,45 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Path Filter & Short-Circuit Change Detection
+        id: filter
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE_REF="${{ github.event.pull_request.base.sha }}"
+            echo "Evaluating PR diff against base ref: ${BASE_REF}"
+          else
+            BASE_REF="HEAD~1"
+            echo "Evaluating push diff against: ${BASE_REF}"
+          fi
+
+          CHANGED_FILES=$(git diff --name-only "${BASE_REF}" HEAD 2>/dev/null || git diff --name-only HEAD~1 HEAD 2>/dev/null || echo "ALL")
+          echo "Changed files:"
+          echo "${CHANGED_FILES}"
+
+          if [ "${CHANGED_FILES}" != "ALL" ]; then
+            NON_DOC_CHANGES=$(echo "${CHANGED_FILES}" | grep -v -E '^(docs/|.*\.md$|LICENSE|\.gitignore|.*\.png$|.*\.jpg$|.*\.svg$)' || true)
+            if [ -z "${NON_DOC_CHANGES}" ]; then
+              echo "Only documentation or metadata files changed. Short-circuiting heavy checks."
+              echo "skip_all=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "skip_all=false" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "skip_all=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Set up Go
+        if: steps.filter.outputs.skip_all != 'true'
         uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
           cache: true
 
       - name: Run Go tests with race detector
+        if: steps.filter.outputs.skip_all != 'true'
         run: go test -race -v ./...
 
   golangci-lint:
@@ -36,14 +71,45 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Path Filter & Short-Circuit Change Detection
+        id: filter
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE_REF="${{ github.event.pull_request.base.sha }}"
+            echo "Evaluating PR diff against base ref: ${BASE_REF}"
+          else
+            BASE_REF="HEAD~1"
+            echo "Evaluating push diff against: ${BASE_REF}"
+          fi
+
+          CHANGED_FILES=$(git diff --name-only "${BASE_REF}" HEAD 2>/dev/null || git diff --name-only HEAD~1 HEAD 2>/dev/null || echo "ALL")
+          echo "Changed files:"
+          echo "${CHANGED_FILES}"
+
+          if [ "${CHANGED_FILES}" != "ALL" ]; then
+            NON_DOC_CHANGES=$(echo "${CHANGED_FILES}" | grep -v -E '^(docs/|.*\.md$|LICENSE|\.gitignore|.*\.png$|.*\.jpg$|.*\.svg$)' || true)
+            if [ -z "${NON_DOC_CHANGES}" ]; then
+              echo "Only documentation or metadata files changed. Short-circuiting heavy checks."
+              echo "skip_all=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "skip_all=false" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "skip_all=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Set up Go
+        if: steps.filter.outputs.skip_all != 'true'
         uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
           cache: true
 
       - name: Run golangci-lint
+        if: steps.filter.outputs.skip_all != 'true'
         uses: golangci/golangci-lint-action@v8
         with:
           version: v2.1.6
@@ -53,7 +119,40 @@ jobs:
     name: Vulnerability Check (govulncheck)
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Path Filter & Short-Circuit Change Detection
+        id: filter
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE_REF="${{ github.event.pull_request.base.sha }}"
+            echo "Evaluating PR diff against base ref: ${BASE_REF}"
+          else
+            BASE_REF="HEAD~1"
+            echo "Evaluating push diff against: ${BASE_REF}"
+          fi
+
+          CHANGED_FILES=$(git diff --name-only "${BASE_REF}" HEAD 2>/dev/null || git diff --name-only HEAD~1 HEAD 2>/dev/null || echo "ALL")
+          echo "Changed files:"
+          echo "${CHANGED_FILES}"
+
+          if [ "${CHANGED_FILES}" != "ALL" ]; then
+            NON_DOC_CHANGES=$(echo "${CHANGED_FILES}" | grep -v -E '^(docs/|.*\.md$|LICENSE|\.gitignore|.*\.png$|.*\.jpg$|.*\.svg$)' || true)
+            if [ -z "${NON_DOC_CHANGES}" ]; then
+              echo "Only documentation or metadata files changed. Short-circuiting heavy checks."
+              echo "skip_all=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "skip_all=false" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "skip_all=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Run govulncheck
+        if: steps.filter.outputs.skip_all != 'true'
         uses: golang/govulncheck-action@v1
         with:
           go-version-file: go.mod
@@ -65,8 +164,38 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Path Filter & Short-Circuit Change Detection
+        id: filter
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE_REF="${{ github.event.pull_request.base.sha }}"
+            echo "Evaluating PR diff against base ref: ${BASE_REF}"
+          else
+            BASE_REF="HEAD~1"
+            echo "Evaluating push diff against: ${BASE_REF}"
+          fi
+
+          CHANGED_FILES=$(git diff --name-only "${BASE_REF}" HEAD 2>/dev/null || git diff --name-only HEAD~1 HEAD 2>/dev/null || echo "ALL")
+          echo "Changed files:"
+          echo "${CHANGED_FILES}"
+
+          if [ "${CHANGED_FILES}" != "ALL" ]; then
+            NON_DOC_CHANGES=$(echo "${CHANGED_FILES}" | grep -v -E '^(docs/|.*\.md$|LICENSE|\.gitignore|.*\.png$|.*\.jpg$|.*\.svg$)' || true)
+            if [ -z "${NON_DOC_CHANGES}" ]; then
+              echo "Only documentation or metadata files changed. Short-circuiting heavy checks."
+              echo "skip_all=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "skip_all=false" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "skip_all=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Run ShellCheck
+        if: steps.filter.outputs.skip_all != 'true'
         uses: ludeeus/action-shellcheck@master
         with:
           scandir: './bin ./tests .'
@@ -82,17 +211,50 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Path Filter & Short-Circuit Change Detection
+        id: filter
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE_REF="${{ github.event.pull_request.base.sha }}"
+            echo "Evaluating PR diff against base ref: ${BASE_REF}"
+          else
+            BASE_REF="HEAD~1"
+            echo "Evaluating push diff against: ${BASE_REF}"
+          fi
+
+          CHANGED_FILES=$(git diff --name-only "${BASE_REF}" HEAD 2>/dev/null || git diff --name-only HEAD~1 HEAD 2>/dev/null || echo "ALL")
+          echo "Changed files:"
+          echo "${CHANGED_FILES}"
+
+          if [ "${CHANGED_FILES}" != "ALL" ]; then
+            NON_DOC_CHANGES=$(echo "${CHANGED_FILES}" | grep -v -E '^(docs/|.*\.md$|LICENSE|\.gitignore|.*\.png$|.*\.jpg$|.*\.svg$)' || true)
+            if [ -z "${NON_DOC_CHANGES}" ]; then
+              echo "Only documentation or metadata files changed. Short-circuiting heavy checks."
+              echo "skip_all=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "skip_all=false" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "skip_all=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Install Nix
+        if: steps.filter.outputs.skip_all != 'true'
         uses: DeterminateSystems/nix-installer-action@v16
 
       - name: Magic Nix Cache
+        if: steps.filter.outputs.skip_all != 'true'
         uses: DeterminateSystems/magic-nix-cache-action@v10
         with:
           use-flakehub: false
 
       - name: Check Flake & Run Tests
+        if: steps.filter.outputs.skip_all != 'true'
         run: nix flake check
 
       - name: Build Package
+        if: steps.filter.outputs.skip_all != 'true'
         run: nix build .#tmux-glance
