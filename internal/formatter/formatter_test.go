@@ -259,6 +259,30 @@ func TestTruncate_RuneWidth(t *testing.T) {
 	}
 }
 
+func TestTruncate_Boundaries(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name   string
+		s      string
+		maxLen int
+		want   string
+	}{
+		{"empty string", "", 10, ""},
+		{"shorter than maxLen", "hello", 10, "hello"},
+		{"exactly maxLen", "hello world", 11, "hello world"},
+		{"longer than maxLen", "hello world", 8, "hello..."},
+		{"multibyte characters", "🚨 🚨 🚨 🚨", 6, "🚨 🚨..."},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := truncate(tt.s, tt.maxLen); got != tt.want {
+				t.Errorf("truncate(%q, %d) = %q, want %q", tt.s, tt.maxLen, got, tt.want)
+			}
+		})
+	}
+}
+
 func terminalCellWidth(s string) int {
 	w := 0
 	for _, r := range s {
