@@ -22,11 +22,11 @@ As terminal workflows transition from synchronous shell commands to autonomous, 
    * Never hijacks standard tmux defaults (especially `prefix [` copy-mode, or `c`, `z`, `n`, `p`).
    * Direct navigation chords, jumplist rewinds, and quickfix cycling are strictly Tier 2 opt-ins (`@glance_enable_*`).
    * Interactive search keys (`Ctrl-g`, `Ctrl-s`, `Ctrl-h`, `Enter`) stay strictly scoped inside the `fzf` popup subprocess.
-3. **Sub-50ms Status Bar Execution Budget:** `tmux-glance status` runs synchronously inside `status-right` on tmux's `status-interval`. It must execute in `< 50ms`. Non-candidate panes (standard shells/compilations without active vigils) are bypassed immediately in O(1) time without capture-pane or hashing subprocesses. Candidate agent panes and vigils are evaluated concurrently across parallel worker subshells, and background scans are debounced via a configurable cooldown threshold (`@glance_scan_cooldown`). All external telemetry (such as API quotas or saturation gauges) must read pre-warmed local cache files written asynchronously out-of-band.
-4. **Pluggable Sentinels:** Agent TUIs and process monitors are decoupled behind a clean, pluggable Sentinel interface (`matches`, `classify`, `fingerprint`), enabling modular support for diverse agents without core multiplexer entanglement.
+3. **Sub-50ms Status Bar Execution Budget:** `tmux-glance status` runs synchronously inside `status-right` on tmux's `status-interval`. It must execute in `< 50ms`. Non-candidate panes (standard shells/compilations without active vigils) are bypassed immediately in O(1) time without capture-pane or hashing subprocesses. Candidate agent panes and vigils are evaluated concurrently across a bounded goroutine worker pool (`workerPoolSize = 8`), and background scans are debounced via a configurable cooldown threshold (`@glance_scan_cooldown`). All external telemetry (such as API quotas or saturation gauges) must read pre-warmed local cache files written asynchronously out-of-band.
+4. **Pluggable Sentinels:** Agent TUIs and process monitors are decoupled behind a clean, pluggable Sentinel interface (`Matches`, `Classify`, `Fingerprint`), enabling modular support for diverse agents without core multiplexer entanglement.
 5. **Intelligent Thought & Spinner Normalization:** Sentinels strip transient visual noise—such as animated braille spinners (`[⣟⣯⣷]`) and streaming thought indicators—before computing buffer fingerprints, eliminating false-positive unread alarms.
-6. **Zero-Friction Auto-Acknowledgment with Dwell-Time Protection:** Merely switching focus into an alerted pane acknowledges and clears the alert after dwell time expires (configurable via `@glance_dwell_ms`, default 500ms). Rapid navigation whizzing past panes suppresses auto-acknowledgment so alerts remain safely queued.
-7. **Rock-Solid Concurrency & Atomicity:** Atomic directory locking (`.lock` via `mkdir`) and temporary file renames (`mv`) protect state across concurrent tmux status redraws, window switches, and hook triggers.
+6. **Zero-Friction Auto-Acknowledgment with Dwell-Time Protection:** Merely switching focus into an alerted pane acknowledges and clears the alert after dwell time expires (configurable via `@glance_dwell_ms`, default 500ms). Dwell waiting runs outside the global state lock so rapid navigation whizzing past panes suppresses auto-acknowledgment without blocking concurrent navigation or status commands.
+7. **Rock-Solid Concurrency & Atomicity:** Atomic directory locking (`.lock` via `os.Mkdir`) and temporary file renames (`os.CreateTemp` + `os.Rename`) protect state across concurrent tmux status redraws, window switches, and hook triggers.
 8. **Cross-Platform POSIX Portability:** Scripts and tests run seamlessly on Darwin (macOS BSD coreutils, `md5`) and Linux (GNU coreutils, `md5sum`).
 
 
@@ -34,13 +34,13 @@ As terminal workflows transition from synchronous shell commands to autonomous, 
 
 ## 3. High-Level Architecture & Component Flow
 
-As of v0.7, all stateful engine logic has moved to **`glance-engine`**, a compiled Go binary. The bash script (`bin/tmux-glance`) is now a thin ~140-line dispatcher handling only FZF popup assembly, preview loops, and key-read interactions.
+As of v0.7, all stateful engine logic lives in **`glance-engine`**, a compiled Go binary. The bash script (`bin/tmux-glance`) is a thin dispatcher handling FZF popup assembly, preview loops, and key-read interactions.
 
 ### Go/Bash Boundary
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  bin/tmux-glance  (bash, ~140 lines)                            │
+│  bin/tmux-glance  (bash dispatcher)                             │
 │  • fzf popup launcher (list / list-all / list-sessions / history)│
 │  • preview_pane loop (background tail via tmux capture-pane)     │
 │  • pin_interactive (raw key read for Harpoon slot assignment)    │
@@ -57,7 +57,8 @@ As of v0.7, all stateful engine logic has moved to **`glance-engine`**, a compil
 │    state/      FileStore (atomic writes), bash-compat Lock      │
 │    sentinel/   native Go sentinels (antigravity, generic)       │
 │    scanner/    goroutine fan-out (pool=8), Scan/OnFocus/Status  │
-│    jumplist/   back/forward stacks; ShiftTo() fixes Issue #2    │
+│    jumplist/   back/forward MRU stacks; ShiftTo() frame shift   │
+│    quickfix/   AttentionQueue severity sorting & cyclic jump    │
 │    slots/      Harpoon slot store                               │
 │    formatter/  FZF line renderers (attention/all/sessions/hist) │
 └─────────────────────────────────────────────────────────────────┘
@@ -82,6 +83,7 @@ flowchart TD
         Lock["state.Lock\n(mkdir — bash compat)"]
         State["state.FileStore\n(~/.tmux-glance)"]
         JL["jumplist.Stack"]
+        QF["quickfix.Cycle()"]
         Slots["slots.Store"]
         Fmt["formatter.*List()"]
     end
@@ -90,7 +92,7 @@ flowchart TD
         Status["Tmux status-right\n'🚨 1  👁️ 1  🤖 ⏳ 1  ⚡ 2'"]
         Hub["Attention Hub (prefix b)\nAgent tasks & vigils sorted by severity"]
         Fleet["Global Panes (prefix g)\n100% of panes teleporter"]
-        Sessions["Sessionizer (prefix s)\nWorkspace switcher + slot badges"]
+        Sessions["Sessionizer (Ctrl-s in modal)\nWorkspace switcher + slot badges"]
         Preview["fzf ANSI Live Preview\n(tmux capture-pane)"]
     end
 
@@ -101,6 +103,7 @@ flowchart TD
     S_AGY & S_GEN --> Lock
     Lock --> State
     State --> Fmt
+    State --> QF
     Fmt --> Status
     Fmt --> Hub
     Fmt --> Fleet
@@ -135,12 +138,12 @@ When command names are generic wrappers (e.g. `cli`, `agent`, `run`), `Matches(p
 ### In-Scope Sentinels
 
 #### 1. `sentinel-antigravity`
-* **Matcher:** `cmd =~ ^(agy|antigravity)$`
+* **Matcher:** Direct match on `cmd =~ ^(agy|antigravity)$`, or process tree inspection (`tmux.InspectProcessTree`) when `cmd` is a generic wrapper (`cli`, `agent`, `run`).
 * **Classification:**
-  * `WAITING`: Detects interactive permission prompts, subagent approval requests, and blocked tool execution (`needs approval`, `ctrl+y approve`, `Blocked ·`, `Requesting permission for`, `Run this command?`, `Navigate · tab Amend`, `1. Yes, run command`, `(y/n)`). Represents states awaiting user input.
-  * `RUNNING`: Detects active tool execution (`esc to cancel`) as well as active background subagents (`● Agent(...)`).
+  * `WAITING`: Detects semantic blocked/approval cues in the last 15 non-empty lines: subagent blocked lifecycle widgets (`● Agent(...) Blocked`), framed approval headers (`┃ ... needs approval for`), and interactive permission prompts (`Requesting permission for`, `Run this command?` when not followed by `Command finished`). Represents states awaiting user input.
+  * `RUNNING`: Detects active foreground execution (`esc to cancel` on the last line) as well as active non-blocked background subagents (`● Agent(...)`).
     * *Nuance (Subagent in flight vs. Foreground execution):* Unlike foreground execution where terminal input is blocked until cancellation/completion, background subagent execution leaves the parent prompt at rest (`>`), meaning the pane can still accept user input. While this could eventually warrant a dedicated state and icon (e.g. `🤖 🔀` subagent-running), classifying it as `RUNNING` for now prevents premature `done` / unread activity alerts while work is actively in flight.
-  * `IDLE`: Detects resting prompt (`? for shortcuts`). Note that `WAITING` and `RUNNING` (active subagents) cues take precedence over `IDLE`, as the resting prompt (`? for shortcuts`) remains visible while subagents are running or blocked.
+  * `IDLE`: Detects resting footer (`? for shortcuts`) or prompt (`>`). Note that `WAITING` and `RUNNING` (active subagents) cues take precedence over `IDLE`, as the resting prompt (`? for shortcuts`) remains visible while subagents are running or blocked.
 * **Thinking Spinner Normalizer:**
   Antigravity streams thoughts and animates braille spinners (`[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏⣾⣽⣻⢿⡿⣟⣯⣷]`) in-place during thinking blocks. The normalizer strips these lines before hashing:
   ```go
@@ -154,8 +157,9 @@ When command names are generic wrappers (e.g. `cli`, `agent`, `run`), `Matches(p
           clean := reThinking.ReplaceAllString(l, "")
           normalized = append(normalized, clean)
       }
-      h := md5.Sum([]byte(strings.Join(normalized, "\n")))
-      return hex.EncodeToString(h[:]), nil
+      content := strings.Join(normalized, "\n")
+      sum := md5.Sum([]byte(content))
+      return fmt.Sprintf("%x", sum), nil
   }
   ```
 
@@ -187,25 +191,11 @@ Autonomous agents frequently drop back to the prompt (`? for shortcuts`) while b
 4. Focusing the pane (`on_focus`) updates the snapshot, acknowledges the activity, and silences the alert.
 
 ### Atomic Directory Locking
-To prevent corrupt writes or race conditions between tmux's periodic `status-right` scan (every 5 seconds) and interactive commands:
-```bash
-acquire_lock() {
-    local lock_dir="${STATE_FILE}.lock"
-    local count=0
-    while ! mkdir "$lock_dir" 2>/dev/null; do
-        sleep 0.02
-        count=$((count + 1))
-        if [[ $count -ge 50 ]]; then
-            rmdir "$lock_dir" 2>/dev/null || true
-            count=0
-        fi
-    done
-}
-```
+To prevent corrupt writes or race conditions between tmux's periodic `status-right` scan and interactive commands, `internal/state.Lock` uses atomic directory creation (`os.Mkdir`) with automatic stale-lock recovery after ~1 second (50 attempts × 20ms) and temp-file rename (`os.CreateTemp` + `os.Rename`) for all state, jumplist, and slot file writes.
 
 ### Harpoon Session Slots (`~/.local/state/tmux-glance/slots`)
 To enable instantaneous, 1-chord teleportation across developer projects without hardcoding cryptic session names (like `0`, `J`, `K`, `L`), `tmux-glance` provides a dynamic Harpoon slot engine.
-* **Storage Schema:** Tab-delimited flat file: `<slot>\t<session_name>` (e.g. `j\tnix-home`). Stored under `$XDG_STATE_HOME/tmux-glance/slots`.
+* **Storage Schema:** Tab-delimited flat file: `<slot>\t<session_name>` (e.g. `j\tbackend-api`). Stored under `$XDG_STATE_HOME/tmux-glance/slots`.
 * **Zero Config Drag:** Slots are assigned dynamically without editing Nix or shell environment variables. Survives reboots and works seamlessly with `tmux-resurrect`.
 * **Modal Assignment:** Slots are managed directly inside the Sessionizer (`Ctrl-s`) by pressing `Ctrl-p` on any highlighted session, avoiding global key namespace clutter.
 
@@ -253,16 +243,19 @@ Global navigation chords, jumplist rewinds, and queue cycling can collide with p
 
 ## 7. Design Evolution Log
 
+* **v1.0 Production Hardening, Dogfooding & Polish:**
+  - Hardened concurrent state/jumplist/slot writes with `os.CreateTemp`, UTF-8 rune-safe truncation, Vim MRU jumplist deduplication, and 500ms dwell-time auto-acknowledgment (`@glance_dwell_ms`) executed outside the global state lock.
+  - Standardized Tier 2 navigation on repeatable `prefix -r <` / `prefix -r >` (history) and `prefix -r }` / `prefix -r {` (quickfix cycling, protecting stock tmux `prefix [` copy-mode).
 * **v0.8 Attention Quickfix Cycling & Repeatable Navigation:**
   - Implemented cyclic, Vim-quickfix-style navigation (`next-attention` / `prev-attention`, aliases `cnext` / `cprev`) cycling across active attention panes via Tier 2 opt-in repeatable chords (`prefix -r }` / `prefix -r {`).
   - Strict deterministic queue ordering sorted by severity rank (`🚨 Alert` > `🤖 ⏳ Waiting` > `🤖 ✓ Finished`).
   - Preserved the "whiz-past" invariant: rapid traversal suppresses instantaneous `pane-focus-in` auto-acknowledgment so alerts remain queued during navigation until dwell time expires.
   - Implemented 2-keystroke repeatable jump history flipping (`prefix -r <` / `prefix -r >`) and client repeat mode preservation across jumps.
   - Interactive status feedback (`Glance [1/3] 🚨 Alert: session (label)`).
-* **v0.7 Jump History & Backtracking Jumplist:**
-  - Implemented dual back/forward traversal stack (`jump-back` / `jump-forward`) with liveness verification.
-  - In-modal history inspector (`Ctrl-h`) in viewfinder with live pane previewing and fast teleportation.
-  - Unified vertical timeline (`FWD` above `CUR` above `BACK`) with dynamic FZF cursor positioning on `BACK #1` and safe no-op on `CUR`. Frame-shifting from within the modal is tracked in Issue #2.
+* **v0.7 Go Engine Rewrite, Jump History & Backtracking Jumplist:**
+  - Replaced the bash monolith with the compiled `glance-engine` Go binary and native in-memory Go sentinels.
+  - Implemented dual back/forward traversal stack (`jump-back` / `jump-forward`) with liveness verification and `ShiftTo()` frame-shifting (resolving Issue #2).
+  - In-modal history inspector (`Ctrl-h`) and Tier 2 `prefix Tab` viewfinder with unified vertical timeline (`FWD` above `CUR` above `BACK`), dynamic FZF cursor positioning on `BACK #1`, and safe no-op on `CUR`.
   - Tier 2 opt-in direct keyboard backtracking chords (repeatable `prefix -r <` / `prefix -r >`).
 * **v0.6 In-Dashboard Sessionizer & Harpoon Slots:**
   - Integrated tmux session navigation directly into the Glance popup (`Ctrl-s`).
@@ -270,30 +263,23 @@ Global navigation chords, jumplist rewinds, and queue cycling can collide with p
   - Interactive modal Harpoon slot pinning (`Ctrl-p` in Sessionizer $\rightarrow$ `h/j/k/l`).
   - In-modal help cheat sheet (`Ctrl-/` / `F1`) scoped strictly to viewfinder controls.
   - Opt-in Tier 2 fast session jumping via `prefix -r C-h/j/k/l` (`jump-slot`).
-* **v3.0 Standalone Project Extraction (`tmux-glance`):**
-  - Formalized as standalone flake and TPM package.
+* **v0.4–v0.5 Standalone Project Extraction (`tmux-glance`):**
+  - Formalized as standalone flake and TPM package with active 500ms real-time preview tailing (`:follow`).
   - Pluggable Sentinel architecture introduced with thinking spinner normalizer.
-  - Migrated `prefix B` to `prefix v` (Vigil) for an all-unshifted left-hand navigation cluster (`s`, `f`, `g`, `b`, `v`).
-* **v2.4 Dynamic Output Alarms & Sentinels:**
-  - Introduced output hashing to upgrade quiet watches to `🚨 Alert` on background output.
-* **v2.0 Dual-View Navigation & Agent Attention Hub:**
-  - Added background autonomous agent scraping, fzf live previews, and dual-mode toggle.
-* **v1.0 Basic Tmux Bookmarks:**
-  - Initial pinned pane bookmarks with fzf switcher.
+  - Migrated `prefix B` to `prefix v` (Vigil) for an all-unshifted left-hand navigation cluster (`g`, `b`, `v`).
+* **v0.1–v0.3 Early Prototypes:**
+  - Initial pinned pane bookmarks, background agent TUI scraping, and output-hashing Vigil alerts.
 
 ---
 
-## 8. Future Roadmap & Explorations
+## 8. Future Explorations (Post-v1.0 Candidates)
 
-* **v0.9: Global Agent Quotas & Saturation Gauges (`sentinel_<name>_gauge`):**
-  - Allow sentinels to optionally contribute a single, global capacity or quota gauge (e.g. LLM API token quota, hourly request limits, or harness saturation).
-  - **Threshold Visibility Rule:** Quota gauges only appear in `status-right` when depleted below **20%** (e.g. `#[fg=#fab387]🪫 18%#[default]`, escalating to `#[fg=#f38ba8,bold]⚠️ 4%#[default]`). When >20%, `status-right` remains completely quiet and uncluttered.
-  - **Always Visible in Dashboard:** The Glance Viewfinder (`prefix g` / `prefix b`) always displays the gauge in the header/telemetry bar regardless of level so developers can check capacity at any time.
-  - **Strictly Global (No Per-Pane Churn):** Limit of 1 global gauge per harness. Progress bars or multi-terminal metrics are disallowed in this slot to prevent status bar churn and visual clutter.
-  - **Asynchronous Local Cache Invariant:** Gauges must **never** make synchronous HTTP or CLI queries inside `status-right` polling (must read a local cache file written out-of-band by a daemon, hook, or background task to preserve the <50ms status budget). Pilot with `sentinel_antigravity` first.
-* **v1.0: Production Hardening, Dogfooding & Polish:**
-  - Comprehensive real-world dogfooding across multi-monitor, high-churn, and nested tmux setups.
-  - Edge-case hardening (unusual terminal dimensions, window resizing during active popups, high-latency SSH clients).
-  - Configuration stability freeze, documentation audit, and release packaging.
+Potential features evaluated on real-world need (see [README.md § Potential Features](README.md#potential-features) for the full list):
+
+* **External Notification Hooks (`@glance_alert_cmd`):** Invoke a user command (with state and label arguments) whenever a Vigil alert fires or an agent transitions to `🤖 ⏳ waiting`, enabling desktop notifications (`osascript`, `notify-send`) or webhook pings when away from the terminal.
+* **Alert Snooze & Age Indicators:** Dismiss or snooze an alert directly from inside the viewfinder without teleporting into the pane, and display inline elapsed time in state (e.g. `🤖 ⏳ 12m`).
+* **Global Agent Quotas & Saturation Gauges:**
+  - Allow sentinels to optionally contribute a single global capacity gauge (e.g. `#[fg=#fab387]🪫 18%#[default]` when below 20% in `status-right`, always visible in the viewfinder header).
+  - **Asynchronous Local Cache Invariant:** Gauges must **never** make synchronous HTTP or CLI queries inside `status-right` polling (must read a local cache file written out-of-band to preserve the `<50ms` status budget).
 
 

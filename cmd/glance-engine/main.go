@@ -64,14 +64,7 @@ func run(ctx context.Context, args []string) error {
 
 	tmuxClient := tmux.Default
 
-	// Discover sentinels.
-	selfDir := selfDir()
-	sentinelDirs := []string{
-		os.Getenv("TMUX_GLANCE_SENTINEL_DIR"),
-		filepath.Join(xdgConfig(), "tmux-glance", "sentinels"),
-		filepath.Join(selfDir, "..", "sentinels"),
-		filepath.Join(selfDir, "..", "share", "tmux-glance", "sentinels"),
-	}
+	// Initialise sentinel registry.
 	disabledStr := envOrTmux(ctx, tmuxClient, "TMUX_GLANCE_DISABLED_SENTINELS", "@glance_disabled_sentinels", "")
 	var disabled []string
 	for _, d := range strings.Split(disabledStr, ",") {
@@ -80,7 +73,7 @@ func run(ctx context.Context, args []string) error {
 		}
 	}
 	routesStr := envOrTmux(ctx, tmuxClient, "TMUX_GLANCE_ROUTES", "@glance_routes", "")
-	reg, err := sentinel.New(sentinelDirs, disabled, sentinel.ParseRouteOverrides(routesStr))
+	reg, err := sentinel.New(nil, disabled, sentinel.ParseRouteOverrides(routesStr))
 	if err != nil {
 		return fmt.Errorf("sentinel registry: %w", err)
 	}
@@ -149,9 +142,7 @@ func run(ctx context.Context, args []string) error {
 		if len(rest) > 0 {
 			paneID = rest[0]
 		}
-		return lock.WithLock(ctx, func() error {
-			return sc.OnFocus(ctx, paneID)
-		})
+		return sc.OnFocusLocked(ctx, paneID, lock.WithLock)
 
 	case "add", "toggle-vigil", "remove":
 		return lock.WithLock(ctx, func() error {
@@ -289,28 +280,32 @@ func run(ctx context.Context, args []string) error {
 		if len(rest) > 1 {
 			session = rest[1]
 		}
-		if session == "" {
-			session, _ = tmuxClient.GetSessionField(ctx, "", "#{session_name}")
-		}
-		if err := slotStore.Assign(slotKey, session); err != nil {
-			return err
-		}
-		tmuxClient.DisplayMessage(ctx, fmt.Sprintf("📌 Pinned [%s] to slot [%s]", session, strings.ToUpper(slotKey))) //nolint:errcheck
-		return nil
+		return lock.WithLock(ctx, func() error {
+			if session == "" {
+				session, _ = tmuxClient.GetSessionField(ctx, "", "#{session_name}")
+			}
+			if err := slotStore.Assign(slotKey, session); err != nil {
+				return err
+			}
+			tmuxClient.DisplayMessage(ctx, fmt.Sprintf("📌 Pinned [%s] to slot [%s]", session, strings.ToUpper(slotKey))) //nolint:errcheck
+			return nil
+		})
 
 	case "unassign-slot":
 		target := ""
 		if len(rest) > 0 {
 			target = rest[0]
 		}
-		if target == "" {
-			target, _ = tmuxClient.GetSessionField(ctx, "", "#{session_name}")
-		}
-		if err := slotStore.Unassign(target); err != nil {
-			return err
-		}
-		tmuxClient.DisplayMessage(ctx, fmt.Sprintf("Unpinned [%s]", target)) //nolint:errcheck
-		return nil
+		return lock.WithLock(ctx, func() error {
+			if target == "" {
+				target, _ = tmuxClient.GetSessionField(ctx, "", "#{session_name}")
+			}
+			if err := slotStore.Unassign(target); err != nil {
+				return err
+			}
+			tmuxClient.DisplayMessage(ctx, fmt.Sprintf("Unpinned [%s]", target)) //nolint:errcheck
+			return nil
+		})
 
 	case "query-slot":
 		// Returns the uppercase slot letter for the given session, or "" if unpinned.
@@ -468,7 +463,10 @@ func listRaw(ctx context.Context, store *state.FileStore, reg *sentinel.Registry
 	switch targetMode {
 	case "all", "global":
 		panes, _ := tc.ListAllPanes(ctx)
-		resolver := funcResolver{fn: func(cmd string) string { return reg.Resolve(ctx, cmd) }}
+		resolver := funcResolver{
+			fn:     func(cmd string) string { return reg.Resolve(ctx, cmd) },
+			paneFn: func(p tmux.PaneInfo) string { return reg.ResolvePane(ctx, p) },
+		}
 		fmt.Print(formatter.AllPanesList(entries, panes, resolver))
 
 	case "sessions":
@@ -492,16 +490,28 @@ func listRaw(ctx context.Context, store *state.FileStore, reg *sentinel.Registry
 
 	default: // "hub", "bots", "attention"
 		panes, _ := tc.ListAllPanes(ctx)
-		resolver := funcResolver{fn: func(cmd string) string { return reg.Resolve(ctx, cmd) }}
+		resolver := funcResolver{
+			fn:     func(cmd string) string { return reg.Resolve(ctx, cmd) },
+			paneFn: func(p tmux.PaneInfo) string { return reg.ResolvePane(ctx, p) },
+		}
 		fmt.Print(formatter.BotsList(entries, panes, resolver))
 	}
 	return nil
 }
 
-// funcResolver adapts a plain function to the formatter.SentinelResolver interface.
-type funcResolver struct{ fn func(string) string }
+// funcResolver adapts plain functions to formatter.PaneSentinelResolver.
+type funcResolver struct {
+	fn     func(string) string
+	paneFn func(tmux.PaneInfo) string
+}
 
 func (f funcResolver) Resolve(cmd string) string { return f.fn(cmd) }
+func (f funcResolver) ResolvePane(p tmux.PaneInfo) string {
+	if f.paneFn != nil {
+		return f.paneFn(p)
+	}
+	return f.fn(p.Command)
+}
 
 // modeHeader returns the dynamic header string for the given viewfinder mode.
 func modeHeader(mode string) string {
@@ -590,25 +600,6 @@ func xdgState() string {
 		return d
 	}
 	return filepath.Join(home(), ".local", "state")
-}
-
-func xdgConfig() string {
-	if d := os.Getenv("XDG_CONFIG_HOME"); d != "" {
-		return d
-	}
-	return filepath.Join(home(), ".config")
-}
-
-func selfDir() string {
-	exe, err := os.Executable()
-	if err != nil {
-		return ""
-	}
-	resolved, err := filepath.EvalSymlinks(exe)
-	if err != nil {
-		return filepath.Dir(exe)
-	}
-	return filepath.Dir(resolved)
 }
 
 func envOr(key, def string) string {

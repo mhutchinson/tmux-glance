@@ -5,8 +5,8 @@
 </p>
 
 <p align="center">
-  <strong>Ambient activity indicators, crystal-ball pane peering, and instant teleportation for tmux.</strong><br>
-  <em>Stop speculative window hopping. Stay in flow.</em>
+  <strong>Instant cross-session navigation, crystal-ball pane peering, background build watches, and zero-setup AI agent orchestration for tmux.</strong><br>
+  <em>Stop speculative window hopping. Preview live output, then jump straight there.</em>
 </p>
 
 <p align="center">
@@ -18,50 +18,56 @@
 
 ---
 
-## What is tmux-glance?
+## Why tmux-glance? Three Levels of Power
 
-`tmux-glance` turns tmux into an ambient heads-up display for changes in background terminals, such as long-running builds, test suites, and autonomous AI agents:
+`tmux-glance` upgrades how you move through and monitor `tmux`. Its benefits compound with how you use the terminal:
 
-- 🔮 **Crystal Ball Peering (`prefix b` / `prefix g`):** Pop open a floating viewfinder to peer into any pane across any session on your tmux server. Watch compiler output, log streams, or agent progress in real-time ANSI preview without leaving your current workspace.
-- ⚡ **Universal Go-To & Instant Teleportation (`prefix g` + `Enter`):** Type any directory name, repository, or command to fuzzy-match across all panes in every session and window, preview live output, and jump straight there.
-- 👁️ **Glanceable Status Bar Icons:** Ambient indicators (`🚨 1`, `👁️ 2`, `🤖 ⏳ 1`, `🤖 ⚡ 2`) sit quietly in your status bar. If it's quiet, you stay in flow; if a build fails or an agent is blocked waiting for you, you know immediately.
-- 🤖 **Automatic Agent Monitoring (Zero Setup):** You don't need to remember to watch your AI coding assistants. `tmux-glance` automatically discovers background agent sessions (such as Antigravity, Claude Code, and Aider) across all windows and sessions, categorizing their live states (`🤖 ⚡ running`, `🤖 ⏳ waiting for input`, `🤖 ✓ finished`) while intelligently normalizing animated braille spinners and streaming thoughts.
-- 🎯 **One-Key Vigil Watches (`prefix v`):** For everything else—long builds (`cargo build`, `nix build`), database migrations, or test suites—slap a watchful sentinel on any pane with `prefix v`. Switch away, and your status bar will flash `🚨 1` the exact moment new output appears or the process exits. Merely focusing the pane auto-acknowledges the alert.
-  - _Want custom trigger logic or noise filtering for a specific application?_ Write your own [**Sentinel plugin**](#pluggable-sentinels) in a few lines of bash! Sentinels can classify custom states (`waiting`, `running`, `idle`) and normalize spinners or streaming thought lines so you only get alerted when it truly matters.
+### 1. ⚡ Instant Server-Wide Navigation *(Powerful for Every Tmux User)*
+Even if you never run background jobs or AI coding CLIs, `tmux-glance` eliminates cycling through windows (`prefix n` / `prefix p`) or hunting across sessions:
+- **Universal Go-To Teleporter (`prefix g`):** Fuzzy-search across **100% of panes** in every session and window by directory name, repository, session, window, or running command.
+- **Crystal-Ball Live Preview:** Peer into any pane's live, colorized terminal output (`--preview-window=:follow`) *before* you leave your current workspace, then press `Enter` to teleport straight there.
+- **Workspace Sessionizer & Harpoon Slots (`Ctrl-s` / `Ctrl-p`):** Switch sessions in-modal or pin your top 4 workspaces to instant 1-chord shortcuts (`prefix C-h`, `C-j`, `C-k`, `C-l`) with zero config edits.
+- **Vim-Style Jumplist Backtracking (`Ctrl-h` / `prefix Tab` / `prefix <` & `>`):** Every teleport is recorded in a deduplicated MRU jump stack (`FWD` / `CUR` / `BACK`), so you can jump to any pane on the server and rewind right back where you came from.
+
+### 2. 🎯 Background Task & Build Watches *(More Powerful with Background Jobs)*
+When you run long compilations (`cargo build`, `nix build`, `go test`), database migrations, or log tails in other panes, you shouldn't have to keep checking on them:
+- **One-Key Vigil Watches (`prefix v`):** Press `prefix v` on any pane to put a watchful sentinel (`👁️`) on it and jump back to your editor.
+- **Instant Output Alarms (`🚨`):** As soon as the background pane prints new output or finishes, your status bar flashes `🚨 1`.
+- **Quickfix Triage & Dwell Auto-Ack:** Open the **Attention Hub (`prefix b`)** to preview the output, or cycle straight through active alerts with repeatable quickfix chords (`prefix }` / `prefix {`). Simply focusing the pane for 500ms automatically acknowledges and clears the alert—while rapidly whizzing past panes leaves alerts untouched.
+
+### 3. 🤖 Zero-Setup Coding Agent Orchestration *(Even More Powerful with AI Agents)*
+When you have autonomous coding agents running in the background across multiple repositories, `tmux-glance` becomes an ambient mission control with **zero manual setup**:
+- **Automatic Discovery:** Automatically detects background agent sessions (built-in native support for Antigravity via process-tree inspection, plus zero-code `@glance_routes` mapping for custom wrappers or other agent CLIs).
+- **Semantic State Tracking:** Distinguishes whether background agents are actively executing (`⚡ running`), blocked waiting for your confirmation or tool approval (`⏳ waiting`), or finished with unread output (`✓ finished`).
+- **Intelligent Thought & Spinner Normalizer:** Strips animated braille spinners (`[⠋⠙⠹...]`) and streaming `"Thinking..."` lines before fingerprinting screen buffers, ensuring your status bar stays quiet until an agent genuinely needs your input or completes its turn.
 
 ---
 
 ## The Problem: Speculative Window Hopping
 
-In modern development workflows, we juggle multiple long-running terminal tasks:
+As terminal workflows scale across multiple repositories, background builds, test suites, and coding agents, developers suffer from **speculative window hopping**—repeatedly cycling `prefix n`, `prefix p`, or switching sessions just to check:
 
-- Autonomous AI coding agents (Antigravity, Claude Code, Aider) executing multi-step refactors.
-- Compilation and testing (`cargo build`, `nix build`, `bazel`, `go test`).
-- Tail logs, database migrations, and remote test runners.
-
-Without ambient awareness, developers suffer from **speculative window hopping**—repeatedly cycling `prefix n`, `prefix p`, or jumping between sessions just to check:
-
-> _"Did my build finish? Is the agent waiting for confirmation? Did that background test fail?"_
+> _"Which session had my backend repo open? Did my build finish? Did that background test fail? Is an agent blocked waiting for confirmation?"_
 
 Every speculative jump breaks concentration.
 
-## The Solution: Ambient Glanceability
+## The Solution: Ambient Glanceability & Live Viewfinders
 
-`tmux-glance` embeds minimal, ambient telemetry directly into your tmux status bar:
+`tmux-glance` embeds minimal, sub-50ms telemetry directly into your tmux status bar:
 
 ```
-[10:42]  🚨 1  👁️ 1  🤖 ⏳ 1  🤖 ⚡ 2
+[10:42]  🚨 1  👁️ 1  🤖 ⏳ 1  ⚡ 2  ✓ 1
 ```
 
-If the status bar is quiet, you stay focused on your active code. Badges follow a **User-First Domain Clustering** order (manual user vigils lead, followed by autonomous background agents):
+If the status bar is quiet, you stay focused on your active code. Badges follow a **User-First Domain Clustering** order—manual user vigils lead on the left, followed by autonomous background agents grouped inside a single deduplicated `🤖` capsule:
 
-- `🚨 1` — A pane under **Vigil** just printed new terminal output!
+- `🚨 1` — A pane under **Vigil** just printed new terminal output or exited!
 - `👁️ 1` — Panes actively being watched under Vigil in the background.
-- `🤖 ⏳ 1` — A background agent is blocked **waiting for confirmation**.
-- `🤖 ⚡ 2` — Background agents actively running.
-- `🤖 ✓ 1` — An agent completed its task or updated its output.
+- `🤖 ⏳ 1` — A background agent is blocked **waiting for confirmation or approval**.
+- `⚡ 2` — Background agents actively running tools or subagents.
+- `✓ 1` — An agent completed its task or produced unread output while idle.
 
-With one keystroke (`prefix b`), open the **Attention Hub** popup to see agent tasks and vigils (with urgent alerts and blocked prompts prioritized to the top), inspect their output with live ANSI preview, and press `Enter` to jump straight to the pane.
+With one keystroke (`prefix b` for the **Attention Hub**, or `prefix g` for **Global Panes**), open the floating viewfinder popup to see prioritized panes, inspect their live ANSI output stream in real time, and press `Enter` to teleport straight there.
 
 ---
 
@@ -89,12 +95,12 @@ With one keystroke (`prefix b`), open the **Attention Hub** popup to see agent t
 
 ## Key Features
 
-- **Universal Go-To Directory Teleporter (`prefix g`):** `prefix g` isn't just an agent dashboard—it's the fastest teleporter across your entire tmux server. Every pane is indexed by its active directory, repository name, session, window, and foreground process. Press `prefix g`, type a project or directory name (e.g. `nix-home`, `tmux-glance`, `backend`), preview its live state in the viewfinder, and press `Enter` to switch client, window, and pane in a single stroke.
+- **Universal Go-To Directory Teleporter (`prefix g`):** `prefix g` is the fastest teleporter across your entire tmux server. Every pane is indexed by its active directory, repository name, session, window, and foreground process. Press `prefix g`, type a project or directory name (e.g. `frontend`, `tmux-glance`, `backend`), preview its live state in the viewfinder, and press `Enter` to switch client, window, and pane in a single stroke.
 - **Intelligent Thought Normalizer:** AI agents animate braille spinners (`[⠋⠙⠹...][⣾⣽⣻⢿]`) and stream thoughts in-place. `tmux-glance` normalizes and filters out transient thought streams, ensuring unread alerts only trigger on real actions or tool completions.
-- **Auto-Acknowledgment on Focus:** No tedious alert dismissal. Simply switching focus into a pane (`pane-focus-in` hook) acknowledges and clears its notification.
-- **Zero Polling Lag & Atomic Locking:** State updates use file locking (`.lock`) with sub-millisecond execution, avoiding status bar micro-stutters or race conditions.
-- **Active Real-Time Tailing:** The interactive viewer actively streams and updates the focused pane's live buffer in real-time, letting you watch agent output, compiler logs, and thinking progress without needing to navigate or reload.
-- **Pluggable Sentinels:** Clean provider interface decouples the core multiplexer from specific agent TUIs.
+- **Dwell-Protected Auto-Acknowledgment on Focus:** No tedious alert dismissal. Focusing an alerted pane (`pane-focus-in` hook) automatically acknowledges and clears its notification after a 500ms dwell (`@glance_dwell_ms`), while rapid navigation whizzing past panes preserves queued alerts.
+- **Zero Polling Lag & Atomic Locking:** Compiled Go engine (`glance-engine`) with concurrent goroutine evaluation, scan cooldown debouncing, and atomic directory locking (`.lock`) keeps status bar refreshes well within a `<50ms` execution budget.
+- **Active Real-Time Tailing:** The interactive viewer actively streams and updates the focused pane's live buffer every 500ms with bottom-locked viewport following (`:follow`), letting you watch compiler logs, test runs, and agent progress without reloading.
+- **Pluggable Sentinels:** Clean Go `sentinel.Sentinel` interface and `$O(1)$` command routing table (`@glance_routes`) decouple the core multiplexer from specific agent TUIs.
 
 ---
 
@@ -102,7 +108,8 @@ With one keystroke (`prefix b`), open the **Attention Hub** popup to see agent t
 
 - **tmux ≥ 3.2**: Required for floating popup windows (`display-popup`).
 - **fzf**: Required for interactive picker and terminal live previews.
-- Standard POSIX utilities: `bash`, `coreutils` (`awk`, `grep`, `sed`, `md5` or `md5sum`).
+- **Go ≥ 1.22** *(TPM / manual git clone installs only)*: Used to compile `glance-engine` (handled automatically when installing via Nix).
+- Standard POSIX utilities: `bash`, `awk`, `grep`, `sed`, `md5` or `md5sum`.
 
 ---
 
@@ -138,19 +145,20 @@ Add `tmux-glance` to your plugins in `~/.tmux.conf`:
 
 ```tmux
 set -g @plugin 'mhutchinson/tmux-glance'
-set -g status-right '#(tmux-glance status) %H:%M '
+set -g status-right '#(~/.tmux/plugins/tmux-glance/bin/tmux-glance status) %H:%M '
 ```
 
-Press `prefix + I` to fetch the plugin and activate.
+Press `prefix + I` to fetch the plugin and activate (`glance.tmux` automatically compiles `bin/glance-engine` if `go` is on your `PATH`).
 
 ---
 
 ### Option 3: Manual Git Clone
 
-1. Clone the repository:
+1. Clone the repository and build the engine binary:
 
    ```bash
    git clone https://github.com/mhutchinson/tmux-glance ~/.tmux-glance
+   cd ~/.tmux-glance && go build -o bin/glance-engine ./cmd/glance-engine
    ```
 
 2. Add the automated loader to `~/.tmux.conf`:
@@ -177,10 +185,10 @@ nix profile install github:mhutchinson/tmux-glance
 Add to `~/.tmux.conf`:
 
 ```tmux
-bind-key g display-popup -E -w 85% -h 75% "tmux-glance list-all"
-bind-key b display-popup -E -w 85% -h 75% "tmux-glance list"
+bind-key g display-popup -E -w 85% -h 75% "tmux-glance list-all #{pane_id}"
+bind-key b display-popup -E -w 85% -h 75% "tmux-glance list hub #{pane_id}"
 bind-key v run-shell "tmux-glance toggle-vigil"
-set-hook -g pane-focus-in "run-shell 'tmux-glance on-focus #{pane_id}'"
+set-hook -g pane-focus-in "run-shell -b 'tmux-glance on-focus #{pane_id}'"
 set -g status-right '#(tmux-glance status) %H:%M '
 ```
 
@@ -253,12 +261,14 @@ Sentinels run in-memory within the compiled `glance-engine` binary for sub-milli
 programs.tmux-glance = {
   enable = true;
 
-  # Custom keybindings (defaults: g, b, v; Tier 2: Tab)
+  # Custom keybindings (defaults: g, b, v; Tier 2: Tab, }, {)
   keybindings = {
-    glance = "g";  # prefix + g: Global Panes (Go-To Teleport)
-    hub = "b";     # prefix + b: Attention Hub
-    vigil = "v";   # prefix + v: Toggle Vigil on current pane
-    history = "Tab"; # prefix + Tab: Jump History Timeline (Tier 2)
+    glance = "g";       # prefix + g: Global Panes (Go-To Teleport)
+    hub = "b";          # prefix + b: Attention Hub
+    vigil = "v";        # prefix + v: Toggle Vigil on current pane
+    history = "Tab";    # prefix + Tab: Jump History Timeline (Tier 2)
+    quickfixNext = "}"; # prefix + -r }: Next attention item (Tier 2)
+    quickfixPrev = "{"; # prefix + -r {: Previous attention item (Tier 2)
   };
 
   # Custom popup window dimensions (defaults: 85% / 75%)
@@ -278,6 +288,13 @@ programs.tmux-glance = {
 
   # Cooldown threshold in seconds to debounce background scans when focus is unchanged (default: 3)
   scanCooldown = 3;
+
+  # Dwell time in milliseconds before auto-acknowledging alerts on pane focus (default: 500)
+  dwellMs = 500;
+
+  # Ambient status capsule styling ('rounded', 'block', 'bracket', or 'plain') and background color
+  statusStyle = "rounded";
+  statusBg = "#313244";
 };
 ```
 
@@ -302,8 +319,10 @@ set -g @glance_enable_jumplist 'on'
 # Enable Tier 2 Quickfix attention queue cycling (repeatable prefix -r }, -r {):
 set -g @glance_enable_quickfix 'on'
 
-# Optional: customize history viewfinder key (default: Tab)
+# Optional: customize Tier 2 history and quickfix keys (defaults: Tab, }, {)
 # set -g @glance_history_key 'Tab'
+# set -g @glance_quickfix_next '}'
+# set -g @glance_quickfix_prev '{'
 
 # Cooldown threshold in seconds to debounce background scans when focus is unchanged (default: 3)
 set -g @glance_scan_cooldown 3
@@ -354,11 +373,11 @@ programs.tmux-glance = {
   enable = true;
 
   # Completely disable specific sentinels:
-  disabledSentinels = [ "claude" "aider" ];
+  disabledSentinels = [ "antigravity" ];
 
   # Command routing table overrides:
   routes = {
-    # Resolve doppelgänger: force 'chat' to be treated as a normal shell
+    # Resolve doppelgänger: force 'agy' or 'cli' to be treated as a normal shell
     "chat" = "generic";
 
     # Route custom wrappers or binary names to a sentinel:
@@ -371,7 +390,7 @@ programs.tmux-glance = {
 
 ```tmux
 # Disable specific sentinels:
-set -g @glance_disabled_sentinels 'claude,aider'
+set -g @glance_disabled_sentinels 'antigravity'
 
 # Command route overrides: <command>=<sentinel>
 set -g @glance_routes 'chat=generic,my-internal-agent=antigravity'
@@ -399,12 +418,12 @@ The repository includes a convenient `Justfile` for local development, instant i
 When developing `tmux-glance`, you do not need to push to git or rebuild Nix packages to test changes. You can bind your running tmux session directly to your working tree:
 
 ```bash
-# Wire active tmux keybindings directly to this local checkout
+# Build glance-engine and wire active tmux keybindings directly to this local checkout
 just live
 ```
 
-* **Instant Feedback**: Edit scripts in `bin/` or `sentinels/` $\rightarrow$ Save $\rightarrow$ Press `prefix + s` (or `b` / `g`) in tmux. Changes take effect on the very next keystroke.
-* **Reverting to Installed Package**: Press `prefix + r` (or run `tmux source-file ~/.config/tmux/tmux.conf`) to reset bindings back to your standard installed package.
+* **Instant Feedback**: Edit `bin/tmux-glance` (takes effect on the very next keystroke) or edit Go packages in `internal/` and re-run `just live` (or `just go-build`), then press `prefix + b` or `prefix + g` in tmux.
+* **Reverting to Installed Package**: Reload your tmux config (e.g. `tmux source-file ~/.config/tmux/tmux.conf` or `~/.tmux.conf`) to reset bindings back to your standard installed package.
 
 ### 🧪 Automated Testing & CI
 

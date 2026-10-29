@@ -148,6 +148,31 @@ func TestBotsList_FiltersGenericPanes(t *testing.T) {
 	}
 }
 
+type pidAgentResolver struct{}
+
+func (pidAgentResolver) Resolve(cmd string) string { return "generic" }
+func (pidAgentResolver) ResolvePane(p tmux.PaneInfo) string {
+	if p.Command == "cli" && p.PID == 4242 {
+		return "antigravity"
+	}
+	return "generic"
+}
+
+func TestBotsList_UsesPaneSentinelResolverWithPID(t *testing.T) {
+	t.Parallel()
+	panes := []tmux.PaneInfo{
+		{ID: "%1", Session: "s", Window: 0, Pane: 0, Path: "/repo", Command: "cli", PID: 4242},
+		{ID: "%2", Session: "s", Window: 0, Pane: 1, Path: "/other", Command: "cli", PID: 9999},
+	}
+	out := BotsList(nil, panes, pidAgentResolver{})
+	if !strings.Contains(out, "%1") {
+		t.Errorf("process-tree agent pane %%1 (PID 4242) should appear as Idle in bots list:\n%s", out)
+	}
+	if strings.Contains(out, "%2") {
+		t.Errorf("non-agent cli pane %%2 (PID 9999) should NOT appear in bots list:\n%s", out)
+	}
+}
+
 func TestSessionsList_Empty(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()

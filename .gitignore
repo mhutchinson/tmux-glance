@@ -3,4 +3,3 @@ result-*
 *.sock
 .DS_Store
 bin/glance-engine
-bin/tmux-glance.bash-backup

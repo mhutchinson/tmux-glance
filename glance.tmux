@@ -9,6 +9,13 @@ if [[ ! -x "$GLANCE_BIN" ]]; then
     chmod +x "$GLANCE_BIN" 2>/dev/null || true
 fi
 
+# Auto-build glance-engine on first load for TPM / manual git clone users if missing
+if [[ ! -x "$CURRENT_DIR/bin/glance-engine" ]] && ! command -v glance-engine >/dev/null 2>&1; then
+    if command -v go >/dev/null 2>&1 && [[ -f "$CURRENT_DIR/go.mod" ]]; then
+        (cd "$CURRENT_DIR" && go build -o "$CURRENT_DIR/bin/glance-engine" ./cmd/glance-engine) >/dev/null 2>&1 &
+    fi
+fi
+
 # Configurable keybindings
 glance_key="$(tmux show-option -gqv @glance_key)"
 glance_key="${glance_key:-g}"
