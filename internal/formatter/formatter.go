@@ -67,7 +67,7 @@ func BotsList(entries []state.Entry, panes []tmux.PaneInfo, reg SentinelResolver
 			if _, tracked := stateByID[p.ID]; tracked {
 				continue
 			}
-			sentName := reg.Resolve(p.Command)
+			sentName := resolvePaneSentinel(reg, p)
 			if sentName != "generic" {
 				badge := "🤖 💤 Idle    "
 				ctx := truncate(fmt.Sprintf("[%s:%d.%d] %s", p.Session, p.Window, p.Pane, p.Command), 16)
@@ -121,7 +121,7 @@ func AllPanesList(entries []state.Entry, panes []tmux.PaneInfo, reg SentinelReso
 		e, tracked := stateByID[p.ID]
 		sentName := "generic"
 		if reg != nil {
-			sentName = reg.Resolve(p.Command)
+			sentName = resolvePaneSentinel(reg, p)
 		}
 
 		var badge, label string
@@ -364,6 +364,20 @@ func badgeAndPrio(e state.Entry) (badge string, prio int) {
 // SentinelResolver is the subset of sentinel.Registry consumed by the formatter.
 type SentinelResolver interface {
 	Resolve(cmd string) string
+}
+
+// PaneSentinelResolver is an optional extension of SentinelResolver that resolves
+// using full PaneInfo (including PID for process tree disambiguation).
+type PaneSentinelResolver interface {
+	SentinelResolver
+	ResolvePane(p tmux.PaneInfo) string
+}
+
+func resolvePaneSentinel(reg SentinelResolver, p tmux.PaneInfo) string {
+	if pr, ok := reg.(PaneSentinelResolver); ok {
+		return pr.ResolvePane(p)
+	}
+	return reg.Resolve(p.Command)
 }
 
 // FormatStatus formats the ambient status-right badges.

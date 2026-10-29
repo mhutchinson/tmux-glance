@@ -174,6 +174,13 @@ func (sc *Scanner) Scan(ctx context.Context, force bool) error {
 // OnFocus handles a pane-focus-in event, auto-acknowledging completed tasks
 // and alerts after dwell time expires, and syncing agent snapshots.
 func (sc *Scanner) OnFocus(ctx context.Context, paneID string) error {
+	return sc.OnFocusLocked(ctx, paneID, nil)
+}
+
+// OnFocusLocked is like OnFocus, but acquires lockFn only after any dwell-time
+// sleep completes and focus is confirmed, preventing 500ms background dwell
+// timers from blocking concurrent quickfix/jumplist/status calls on the state lock.
+func (sc *Scanner) OnFocusLocked(ctx context.Context, paneID string, lockFn func(context.Context, func() error) error) error {
 	if paneID == "" {
 		paneID, _ = sc.tmux.GetPaneField(ctx, "", "#{pane_id}")
 	}
@@ -181,7 +188,7 @@ func (sc *Scanner) OnFocus(ctx context.Context, paneID string) error {
 		return nil
 	}
 
-	entry, found, err := sc.store.GetEntry(paneID)
+	_, found, err := sc.store.GetEntry(paneID)
 	if err != nil {
 		return err
 	}
@@ -198,9 +205,10 @@ func (sc *Scanner) OnFocus(ctx context.Context, paneID string) error {
 	}
 
 	// Dwell-Time Auto-Ack Protection:
-	// If dwellTime > 0, wait for the dwell duration and verify that the pane
-	// is still focused before auto-acknowledging. Rapid navigation whizzing past
-	// suppresses auto-acknowledgment so alerts remain intact in the queue.
+	// If dwellTime > 0, wait for the dwell duration WITHOUT holding the state lock
+	// and verify that the pane is still focused before auto-acknowledging.
+	// Rapid navigation whizzing past suppresses auto-acknowledgment so alerts
+	// remain intact in the queue and concurrent commands never stall on the lock.
 	if sc.dwellTime > 0 {
 		select {
 		case <-ctx.Done():
@@ -222,47 +230,54 @@ func (sc *Scanner) OnFocus(ctx context.Context, paneID string) error {
 		}
 	}
 
-	// Re-fetch entry in case background state changed during dwellTime.
-	if updatedEntry, updatedFound, err := sc.store.GetEntry(paneID); err == nil {
-		entry = updatedEntry
-		found = updatedFound
-	}
+	applyAck := func() error {
+		// Re-fetch entry under lock in case background state changed during dwellTime.
+		entry, updatedFound, err := sc.store.GetEntry(paneID)
+		if err != nil {
+			return err
+		}
 
-	if found {
-		switch entry.Kind {
-		case state.KindAuto:
-			if entry.State == state.StateDone || entry.State == state.StateWaiting {
-				sc.store.RemoveEntry(paneID) //nolint:errcheck
-				sc.tmux.RefreshClients(ctx)  //nolint:errcheck
-			} else {
-				if sentName != "generic" {
-					path, _ := sc.tmux.GetPaneField(ctx, paneID, "#{pane_current_path}")
-					cls, err := sc.sentinel.Classify(ctx, sentName, paneID, path, cmd)
-					if err == nil && cls.State == "idle" {
-						sc.store.RemoveEntry(paneID) //nolint:errcheck
-						sc.tmux.RefreshClients(ctx)  //nolint:errcheck
+		if updatedFound {
+			switch entry.Kind {
+			case state.KindAuto:
+				if entry.State == state.StateDone || entry.State == state.StateWaiting {
+					sc.store.RemoveEntry(paneID) //nolint:errcheck
+					sc.tmux.RefreshClients(ctx)  //nolint:errcheck
+				} else {
+					if sentName != "generic" {
+						path, _ := sc.tmux.GetPaneField(ctx, paneID, "#{pane_current_path}")
+						cls, err := sc.sentinel.Classify(ctx, sentName, paneID, path, cmd)
+						if err == nil && cls.State == "idle" {
+							sc.store.RemoveEntry(paneID) //nolint:errcheck
+							sc.tmux.RefreshClients(ctx)  //nolint:errcheck
+						}
 					}
 				}
-			}
-		case state.KindManual:
-			hash, _ := sc.sentinel.Fingerprint(ctx, "generic", paneID)
-			sc.tmux.SetPaneOption(ctx, paneID, "@glance_snapshot", hash) //nolint:errcheck
-			if entry.State == state.StateAlert {
-				sc.store.UpdateState(paneID, state.StateWatching) //nolint:errcheck
-				sc.tmux.RefreshClients(ctx)                       //nolint:errcheck
+			case state.KindManual:
+				hash, _ := sc.sentinel.Fingerprint(ctx, "generic", paneID)
+				sc.tmux.SetPaneOption(ctx, paneID, "@glance_snapshot", hash) //nolint:errcheck
+				if entry.State == state.StateAlert {
+					sc.store.UpdateState(paneID, state.StateWatching) //nolint:errcheck
+					sc.tmux.RefreshClients(ctx)                       //nolint:errcheck
+				}
 			}
 		}
+
+		// Always sync agent snapshot on focus if the pane runs an agent.
+		if sentName != "generic" {
+			hash, _ := sc.sentinel.Fingerprint(ctx, sentName, paneID)
+			sc.tmux.SetPaneOption(ctx, paneID, "@glance_agent_snapshot", hash) //nolint:errcheck
+		}
+
+		// Invalidate scan cooldown so the next status poll sees fresh state.
+		sc.tmux.SetGlobalOption(ctx, "@glance_last_scan_time", "0") //nolint:errcheck
+		return nil
 	}
 
-	// Always sync agent snapshot on focus if the pane runs an agent.
-	if sentName != "generic" {
-		hash, _ := sc.sentinel.Fingerprint(ctx, sentName, paneID)
-		sc.tmux.SetPaneOption(ctx, paneID, "@glance_agent_snapshot", hash) //nolint:errcheck
+	if lockFn != nil {
+		return lockFn(ctx, applyAck)
 	}
-
-	// Invalidate scan cooldown so the next status poll sees fresh state.
-	sc.tmux.SetGlobalOption(ctx, "@glance_last_scan_time", "0") //nolint:errcheck
-	return nil
+	return applyAck()
 }
 
 // StatusSummary returns the tmux status-right formatted string.
@@ -312,10 +327,17 @@ func (sc *Scanner) evaluateCandidate(ctx context.Context, p tmux.PaneInfo, exist
 		currHash, _ := sc.sentinel.Fingerprint(ctx, "generic", p.ID)
 		prevHash, _ := sc.tmux.GetPaneOption(ctx, p.ID, "@glance_snapshot")
 
+		updated := existing
+		updated.Session = p.Session
+		updated.Window = p.Window
+		updated.Pane = p.Pane
+		updated.Path = p.Path
+		updated.Command = p.Command
+		updated.Label = p.Command + " in " + filepath.Base(p.Path)
+
 		if isFocused {
 			sc.tmux.SetPaneOption(ctx, p.ID, "@glance_snapshot", currHash) //nolint:errcheck
 			if existing.State == state.StateAlert {
-				updated := existing
 				updated.State = state.StateWatching
 				return paneResult{paneID: p.ID, action: "set", entry: updated}
 			}
@@ -326,7 +348,6 @@ func (sc *Scanner) evaluateCandidate(ctx context.Context, p tmux.PaneInfo, exist
 			return refreshResult
 		}
 		if currHash != prevHash && existing.State != state.StateAlert {
-			updated := existing
 			updated.State = state.StateAlert
 			return paneResult{paneID: p.ID, action: "set", entry: updated}
 		}

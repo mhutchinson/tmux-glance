@@ -37,7 +37,16 @@ for candidate in \
 done
 
 if [[ -z "$ENGINE" ]]; then
-    echo "glance-engine not found. Run 'go build -o bin/glance-engine ./cmd/glance-engine' first." >&2
+    if command -v go >/dev/null 2>&1 && [[ -f "$SCRIPT_DIR/../go.mod" ]]; then
+        (cd "$SCRIPT_DIR/.." && go build -o "$SCRIPT_DIR/glance-engine" ./cmd/glance-engine) >/dev/null 2>&1 || true
+        if [[ -x "$SCRIPT_DIR/glance-engine" ]]; then
+            ENGINE="$SCRIPT_DIR/glance-engine"
+        fi
+    fi
+fi
+
+if [[ -z "$ENGINE" ]]; then
+    echo "glance-engine not found. Run 'go build -o bin/glance-engine ./cmd/glance-engine' (or install via Nix) first." >&2
     exit 1
 fi
 
@@ -153,8 +162,8 @@ list_bookmarks() {
         history)    initial_mode="history" ;;
         hub|bots|attention) initial_mode="hub" ;;
         auto)
-            # Default to all-panes if state file is empty (nothing tracked yet).
-            if ! "$ENGINE" list-raw current 2>/dev/null | grep -q '[^[:space:]]'; then
+            # Default to all-panes if Attention Hub has no active agent or vigil items.
+            if ! "$ENGINE" list-raw hub 2>/dev/null | grep -q $'\t%'; then
                 initial_mode="all"
             fi
             ;;
@@ -167,13 +176,12 @@ list_bookmarks() {
     local fzf_extra_args=()
     if [[ -n "${TMUX_GLANCE_FZF_FILTER:-}" ]]; then
         fzf_extra_args+=(--filter="$TMUX_GLANCE_FZF_FILTER")
-    else
-        fzf_extra_args+=(--bind "start:reload($ENGINE scan force 2>/dev/null; $ENGINE list-raw current 2>/dev/null)+pos(1)")
-    fi
-    if [[ "$initial_mode" == "history" ]]; then
+    elif [[ "$initial_mode" == "history" ]]; then
         local init_pos
         init_pos=$("$ENGINE" history-cursor-pos 2>/dev/null || echo 1)
         fzf_extra_args+=(--bind "load:pos($init_pos)")
+    else
+        fzf_extra_args+=(--bind "start:reload($ENGINE scan force 2>/dev/null; $ENGINE list-raw current 2>/dev/null)+wait+pos(1)")
     fi
 
     local selected

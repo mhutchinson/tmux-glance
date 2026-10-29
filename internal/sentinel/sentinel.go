@@ -143,7 +143,8 @@ func (r *Registry) ResolvePane(ctx context.Context, pane tmux.PaneInfo) string {
 	}
 
 	// 4. Cache fallback to generic for static commands without PID
-	if pane.PID == 0 {
+	// (never cache ambiguous wrapper commands that require process tree inspection).
+	if pane.PID == 0 && cmd != "cli" && cmd != "agent" && cmd != "run" {
 		r.mu.Lock()
 		r.commandMap[cmd] = "generic"
 		r.mu.Unlock()

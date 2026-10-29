@@ -13,7 +13,7 @@ normalize_buffer() {
 # Buffer Frame 1: Spinner is ⠋, thinking about architecture
 buf1=$(cat << 'EOF'
 Welcome to Antigravity CLI
-Running tasks in /Users/mhutchinson/project
+Running tasks in /workspace/project
 ⠋ Thinking... inspecting repository dependencies
 ? for shortcuts
 EOF
@@ -22,7 +22,7 @@ EOF
 # Buffer Frame 2: Spinner rotated to ⣾, thinking updated in-place
 buf2=$(cat << 'EOF'
 Welcome to Antigravity CLI
-Running tasks in /Users/mhutchinson/project
+Running tasks in /workspace/project
 ⣾ Thinking... synthesizing response from neural model
 ? for shortcuts
 EOF
@@ -31,7 +31,7 @@ EOF
 # Buffer Frame 3: Spinner rotated to ⣽, different thought stream
 buf3=$(cat << 'EOF'
 Welcome to Antigravity CLI
-Running tasks in /Users/mhutchinson/project
+Running tasks in /workspace/project
 ⣽ Thinking... checking git status
 ? for shortcuts
 EOF
@@ -40,7 +40,7 @@ EOF
 # Buffer Frame 4: Actual output! The agent finished thinking and printed real tool output
 buf4=$(cat << 'EOF'
 Welcome to Antigravity CLI
-Running tasks in /Users/mhutchinson/project
+Running tasks in /workspace/project
 Requesting permission for run_command: git status
 ? for shortcuts
 EOF

@@ -320,3 +320,36 @@ func TestOnFocus_WhizPast_PreservesAlert(t *testing.T) {
 	}
 }
 
+func TestOnFocusLocked_DoesNotAcquireLockOnWhizPast(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	store, _ := state.NewFileStore(filepath.Join(dir, "state"))
+
+	store.UpsertEntry(state.Entry{ //nolint:errcheck
+		PaneID: "%1", Session: "s", Kind: state.KindManual, State: state.StateAlert,
+	})
+
+	exec := &fakeExecForScanner{responses: map[string]string{
+		"display-message -p -t %1 #{pane_current_command}": "bash",
+		"display-message -p -t %1 #{pane_pid}":             "123",
+		"list-clients -F #{pane_id}":                      "%2",
+	}}
+	tmuxClient := tmux.New(exec)
+	reg, _ := sentinel.New(nil, nil, nil)
+	sc := New(store, reg, tmuxClient, 3*time.Second, 20*time.Millisecond)
+
+	lockAcquired := false
+	lockFn := func(ctx context.Context, fn func() error) error {
+		lockAcquired = true
+		return fn()
+	}
+
+	if err := sc.OnFocusLocked(context.Background(), "%1", lockFn); err != nil {
+		t.Fatalf("OnFocusLocked: %v", err)
+	}
+	if lockAcquired {
+		t.Error("expected lock NOT to be acquired when whizzing past pane during dwell")
+	}
+}
+
+

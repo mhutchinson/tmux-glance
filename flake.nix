@@ -76,6 +76,7 @@
                 --prefix PATH : ${pkgs.lib.makeBinPath [
                   pkgs.tmux
                   pkgs.fzf
+                  pkgs.gawk
                   pkgs.gnugrep
                   pkgs.gnused
                   pkgs.coreutils
@@ -129,6 +130,7 @@
               pkgs.bash
               pkgs.tmux
               pkgs.fzf
+              pkgs.gawk
               pkgs.gnugrep
               pkgs.gnused
               pkgs.coreutils

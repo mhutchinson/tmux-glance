@@ -12,27 +12,27 @@ func TestAntigravity_Normalizer(t *testing.T) {
 	a := NewAntigravity(nil)
 
 	buf1 := `Welcome to Antigravity CLI
-Running tasks in /Users/mhutchinson/project
+Running tasks in /workspace/project
 ⠋ Thinking... inspecting repository dependencies
 ? for shortcuts
 `
 	buf2 := `Welcome to Antigravity CLI
-Running tasks in /Users/mhutchinson/project
+Running tasks in /workspace/project
 ⣾ Thinking... synthesizing response from neural model
 ? for shortcuts
 `
 	buf3 := `Welcome to Antigravity CLI
-Running tasks in /Users/mhutchinson/project
+Running tasks in /workspace/project
 ⣽ Thinking... checking git status
 ? for shortcuts
 `
 	buf4 := `Welcome to Antigravity CLI
-Running tasks in /Users/mhutchinson/project
+Running tasks in /workspace/project
 Requesting permission for run_command: git status
 ? for shortcuts
 `
 
-	pane := tmux.PaneInfo{ID: "%1", Path: "/Users/mhutchinson/project"}
+	pane := tmux.PaneInfo{ID: "%1", Path: "/workspace/project"}
 
 	h1, err := a.Fingerprint(context.Background(), pane, buf1)
 	if err != nil {
@@ -65,7 +65,7 @@ Requesting permission for run_command: git status
 func TestAntigravity_Classify(t *testing.T) {
 	t.Parallel()
 	a := NewAntigravity(nil)
-	pane := tmux.PaneInfo{ID: "%1", Path: "/Users/mhutchinson/project"}
+	pane := tmux.PaneInfo{ID: "%1", Path: "/workspace/project"}
 
 	tests := []struct {
 		name      string
@@ -180,7 +180,7 @@ esc to cancel`,
 func TestAntigravity_Classify_SubagentActiveWhileParentResting(t *testing.T) {
 	t.Parallel()
 	a := NewAntigravity(nil)
-	pane := tmux.PaneInfo{ID: "%34", Path: "/Users/mhutchinson/git/cabinet"}
+	pane := tmux.PaneInfo{ID: "%34", Path: "/workspace/project"}
 
 	buffer := `  I have delegated the retirement of the Questions/ and Actions/ directories and triage
   routing to the implementer subagent. The subagent is currently:
