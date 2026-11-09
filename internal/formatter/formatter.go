@@ -321,14 +321,14 @@ func HistoryList(fwdPanes, backPanes []string, curPane string, paneInfo func(id 
 }
 
 func historyLine(badge, paneID string, paneInfo func(string) tmux.PaneInfo) string {
-	p := paneInfo(paneID)
-	if p.ID == "" {
-		return ""
+	pane := paneInfo(paneID)
+	if pane.ID == "" {
+		return fmt.Sprintf("%s\t[Dead Pane] %s", badge, paneID)
 	}
-	ctx := truncate(fmt.Sprintf("[%s:%d.%d] %s", p.Session, p.Window, p.Pane, p.Command), 16)
-	repo := truncate(filepath.Base(p.Path), 24)
-	label := truncate(p.Path, 32)
-	return fmt.Sprintf("%s│ %-16s │ %-24s │ %s\t%s\n", badge, ctx, repo, label, p.ID)
+	ctx := truncate(fmt.Sprintf("[%s:%d.%d] %s", pane.Session, pane.Window, pane.Pane, pane.Command), 16)
+	repo := truncate(filepath.Base(pane.Path), 24)
+	label := truncate(pane.Path, 32)
+	return fmt.Sprintf("%s│ %-16s │ %-24s │ %s\t%s\n", badge, ctx, repo, label, pane.ID)
 }
 
 func emptyRow(badge, msg string) string {
